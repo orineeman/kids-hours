@@ -63,21 +63,18 @@ if (siteCount === 0) {
   );
 }
 
-// Seed a default parent account if none exists, so a fresh install can log
-// in immediately via login.html without going through setup.html.
-// NOTE: "1234" is a trivially guessable password — it only needs to be typed
-// into the login screen, so hashing it here adds no real protection. This
-// weakens the app's core purpose (blocking a child from bypassing controls)
-// and was a deliberate, explicit choice by the project owner.
-const DEFAULT_PARENT_USERNAME = 'עדידוש';
+// The app has a single parent account, unlocked by password only (no
+// username prompt). PARENT_USERNAME is an internal key for the single row
+// in parent_users — it is never shown to or entered by the user.
+export const PARENT_USERNAME = '__parent__';
 const DEFAULT_PARENT_PASSWORD_HASH =
-  '$2b$12$r9rGk2UIghyeyLqNDyk/ouqFGGYDRzkx1nLtg/dKLmuAMmfaqUg0.'; // bcrypt hash of "1234", cost 12
+  '$2b$12$3UABbaZm6nmn2Z44uVDUWeSfZa4pmSVKSGl8.xAqhQ/x07fG6g1MW'; // bcrypt hash of "הרב דרוקמן", cost 12
 
 const parentCount = db.prepare('SELECT COUNT(*) AS n FROM parent_users').get().n;
 if (parentCount === 0) {
   db.prepare(
     'INSERT INTO parent_users (username, password_hash) VALUES (?, ?)',
-  ).run(DEFAULT_PARENT_USERNAME, DEFAULT_PARENT_PASSWORD_HASH);
+  ).run(PARENT_USERNAME, DEFAULT_PARENT_PASSWORD_HASH);
 }
 
 export function listSites() {

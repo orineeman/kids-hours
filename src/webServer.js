@@ -19,6 +19,7 @@ import {
   getParentUser,
   upsertParentUser,
   hasAnyParentUser,
+  PARENT_USERNAME,
 } from './db.js';
 import { syncSiteFirewall } from './firewall.js';
 
@@ -74,24 +75,22 @@ export function createWebServer() {
     if (hasAnyParentUser()) {
       return res.status(400).json({ error: 'already_configured' });
     }
-    const { username, password } = req.body || {};
-    if (!username || !password || password.length < 8) {
+    const { password } = req.body || {};
+    if (!password || password.length < 8) {
       return res.status(400).json({ error: 'invalid_input' });
     }
     const hash = await bcrypt.hash(password, 12);
-    upsertParentUser(username, hash);
+    upsertParentUser(PARENT_USERNAME, hash);
     req.session.loggedIn = true;
-    req.session.username = username;
     res.json({ ok: true });
   });
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body || {};
-    const user = getParentUser(username || '');
+    const { password } = req.body || {};
+    const user = getParentUser(PARENT_USERNAME);
     const ok = user && (await bcrypt.compare(password || '', user.password_hash));
     if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
     req.session.loggedIn = true;
-    req.session.username = username;
     res.json({ ok: true });
   });
 
