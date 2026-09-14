@@ -72,7 +72,10 @@ Invoke-Step -Name 'בדיקת/התקנת Node.js' -Critical $true -Action {
         throw "Node.js לא מותקן ו-winget לא זמין במערכת. יש להתקין Node.js 18+ ידנית (https://nodejs.org) ואז להריץ את ההתקנה הזו שוב."
     }
     Write-Log "מתקין Node.js LTS דרך winget..."
-    & winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements
+    & winget install --id OpenJS.NodeJS.LTS -e --source winget --silent --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) {
+        Write-Log "winget install (Node.js) החזיר קוד שגיאה $LASTEXITCODE — בודק בכל זאת אם Node.js הותקן." 'WARN'
+    }
     Start-Sleep -Seconds 5
     Refresh-EnvPath
     if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
@@ -82,7 +85,7 @@ Invoke-Step -Name 'בדיקת/התקנת Node.js' -Critical $true -Action {
         }
     }
     if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
-        throw "התקנת Node.js הושלמה אך node.exe עדיין לא נמצא ב-PATH. ייתכן שנדרש איתחול מחשב — הריצו את ההתקנה שוב לאחר איתחול."
+        throw "התקנת Node.js ע'י winget נכשלה או ש-node.exe עדיין לא נמצא ב-PATH (קוד יציאה של winget: $LASTEXITCODE). אם winget מתלונן על מקור msstore — נסו להריץ ידנית: winget install --id OpenJS.NodeJS.LTS -e --source winget . אפשר גם להתקין Node.js 18+ ידנית מ-https://nodejs.org ואז להריץ את ההתקנה הזו שוב."
     }
     Write-Log "Node.js הותקן: $(& node.exe -v)"
 }
@@ -138,7 +141,10 @@ if ($SetupCloudflare) {
             $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
             if (-not $winget) { throw "cloudflared לא מותקן ו-winget לא זמין." }
             Write-Log "מתקין cloudflared..."
-            & winget install --id Cloudflare.cloudflared -e --silent --accept-package-agreements --accept-source-agreements
+            & winget install --id Cloudflare.cloudflared -e --source winget --silent --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -ne 0) {
+                Write-Log "winget install (cloudflared) החזיר קוד שגיאה $LASTEXITCODE — בודק בכל זאת אם cloudflared הותקן." 'WARN'
+            }
             Start-Sleep -Seconds 5
             Refresh-EnvPath
         }
