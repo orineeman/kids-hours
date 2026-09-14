@@ -47,7 +47,14 @@ export function startDnsServer(port = 53) {
         return send(response);
       }
 
-      const addresses = await resolveUpstreamA(name);
+      // We only resolve A records ourselves. Answering a non-A question
+      // (e.g. AAAA) with A-type records would mismatch the question and
+      // most resolvers would just discard it — so for anything else, return
+      // an empty NOERROR instead, which correctly and harmlessly means "no
+      // record of this type" (the client falls back to the A result we do
+      // provide, e.g. under normal IPv4/IPv6 happy-eyeballs behavior).
+      const addresses =
+        question?.type === Packet.TYPE.A ? await resolveUpstreamA(name) : [];
       for (const address of addresses) {
         response.answers.push({
           name,

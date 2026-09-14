@@ -48,6 +48,20 @@ async function addRule(site, ips) {
   ]);
 }
 
+// Signature of the last state actually applied to netsh, per site.id — lets
+// syncSiteFirewall skip the delete+recreate when nothing changed, instead of
+// redoing it on every scheduler tick. Redoing it unconditionally briefly
+// removes an already-blocked site's rule (delete, then re-add) on every
+// single tick, which is both wasted work and a recurring, if narrow, window
+// where the block is momentarily absent.
+const lastApplied = new Map();
+
+function desiredSignature(site, ips) {
+  return isGrantActive(site.id) || ips.length === 0
+    ? 'open'
+    : `block:${[...ips].sort().join(',')}`;
+}
+
 /**
  * Recomputes the firewall state for one site: if it has an active grant,
  * make sure no block rule exists (open); otherwise block every IP address
@@ -56,17 +70,28 @@ async function addRule(site, ips) {
  */
 export async function syncSiteFirewall(site) {
   const ips = getKnownIps(site.id);
-  // Always clear the old rule first: remoteip lists can only grow, and
-  // netsh has no clean "append" verb, so delete+recreate is the simplest
-  // idempotent update.
+  const signature = desiredSignature(site, ips);
+  if (lastApplied.get(site.id) === signature) return; // already in this state
+  // Clear the old rule first: remoteip lists can only grow, and netsh has no
+  // clean "append" verb, so delete+recreate is the simplest idempotent
+  // update for an actual state transition.
   await deleteRule(site);
-  if (!isGrantActive(site.id) && ips.length > 0) {
+  if (signature.startsWith('block:')) {
     await addRule(site, ips);
   }
+  lastApplied.set(site.id, signature);
 }
 
 export async function syncAllFirewalls(sites) {
   for (const site of sites) {
     await syncSiteFirewall(site);
   }
+}
+
+// Called when a site is removed from the catalog entirely, so its block
+// rule (if any) doesn't stay in the Windows Firewall forever with no more
+// UI to remove it from.
+export async function removeSiteFirewallRule(site) {
+  await deleteRule(site);
+  lastApplied.delete(site.id);
 }

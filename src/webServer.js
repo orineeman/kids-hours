@@ -21,7 +21,7 @@ import {
   hasAnyParentUser,
   PARENT_USERNAME,
 } from './db.js';
-import { syncSiteFirewall } from './firewall.js';
+import { syncSiteFirewall, removeSiteFirewallRule } from './firewall.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, '..', 'data');
@@ -135,6 +135,10 @@ export function createWebServer() {
   app.delete('/api/sites/:id', requireAuth, async (req, res) => {
     const site = getSiteById(Number(req.params.id));
     if (!site) return res.status(404).json({ error: 'not_found' });
+    // Remove any active block rule before dropping the site — otherwise a
+    // currently-blocked site's rule stays in the Windows Firewall forever,
+    // since there's no more UI entry to remove it from afterwards.
+    await removeSiteFirewallRule(site);
     deleteSite(site.id);
     res.json({ ok: true });
   });

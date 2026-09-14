@@ -70,11 +70,20 @@ export const PARENT_USERNAME = '__parent__';
 const DEFAULT_PARENT_PASSWORD_HASH =
   '$2b$12$3UABbaZm6nmn2Z44uVDUWeSfZa4pmSVKSGl8.xAqhQ/x07fG6g1MW'; // bcrypt hash of "הרב דרוקמן", cost 12
 
-const parentCount = db.prepare('SELECT COUNT(*) AS n FROM parent_users').get().n;
-if (parentCount === 0) {
+// Seeded once, on the very first run, so a fresh install can log in
+// immediately without a setup step. Guarded by a marker file rather than
+// just "table is empty", so that a parent who deletes the row later (to
+// force the setup screen and pick a real password) doesn't just get the
+// same default silently reinserted on the next service restart.
+const parentSeededMarker = path.join(dataDir, '.parent-seeded');
+if (
+  db.prepare('SELECT COUNT(*) AS n FROM parent_users').get().n === 0 &&
+  !fs.existsSync(parentSeededMarker)
+) {
   db.prepare(
     'INSERT INTO parent_users (username, password_hash) VALUES (?, ?)',
   ).run(PARENT_USERNAME, DEFAULT_PARENT_PASSWORD_HASH);
+  fs.writeFileSync(parentSeededMarker, String(Date.now()));
 }
 
 export function listSites() {
