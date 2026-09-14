@@ -165,9 +165,19 @@ if ($SetupCloudflare) {
         $fullHostname = "$CloudflareSubdomain.$CloudflareDomain"
         Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('tunnel', 'route', 'dns', $TunnelName, $fullHostname)
 
+        # שירות cloudflared (כמו כל שירות Windows שהותקן בלי לציין אחרת) רץ
+        # תחת חשבון SYSTEM, שיש לו פרופיל נפרד משל המשתמש האינטראקטיבי
+        # (Administrator) שממנו בוצעו tunnel login/create למעלה. בלי להעתיק
+        # את קבצי ה-cert/credentials/config גם לפרופיל של SYSTEM, השירות לא
+        # מוצא אותם בכלל ולא מתחבר בפועל — כלפי חוץ זה נראה כ"Error 1033"
+        # (Cloudflare Tunnel error) כי אין שום חיבור פעיל מהמחשב הזה.
+        $systemCfDir = Join-Path $env:SystemRoot 'System32\config\systemprofile\.cloudflared'
+        New-Item -ItemType Directory -Force -Path $systemCfDir | Out-Null
+        $destCredFile = Join-Path $systemCfDir $credFile.Name
+
         $configYml = @"
 tunnel: $TunnelName
-credentials-file: $($credFile.FullName)
+credentials-file: $destCredFile
 ingress:
   - hostname: $fullHostname
     service: http://localhost:8080
@@ -175,6 +185,11 @@ ingress:
 "@
         Set-Content -Path (Join-Path $cfDir 'config.yml') -Value $configYml -Encoding UTF8
         Write-Log "config.yml נכתב עבור hostname $fullHostname"
+
+        Copy-Item -Path $certFile -Destination $systemCfDir -Force
+        Copy-Item -Path $credFile.FullName -Destination $systemCfDir -Force
+        Copy-Item -Path (Join-Path $cfDir 'config.yml') -Destination $systemCfDir -Force
+        Write-Log "קובצי Cloudflare הועתקו גם לפרופיל SYSTEM ($systemCfDir)."
 
         $cfSvc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
         if ($cfSvc) {
