@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>בקרת אינטרנט לילדים</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>בקרת אינטרנט לילדים</h1>
+    <button class="secondary" id="logoutBtn">התנתק</button>
+  </header>
+
+  <div class="card">
+    <h2>אתרים מנוהלים</h2>
+    <div id="sites"></div>
+  </div>
+
+  <div class="card">
+    <h2>הוספת אתר לרשימה</h2>
+    <div class="add-site">
+      <input type="text" id="newName" placeholder="שם (למשל: יוטיוב)" />
+      <input type="text" id="newDomains" placeholder="דומיינים מופרדים בפסיק (למשל: youtube.com,ytimg.com)" />
+      <button id="addSiteBtn">הוסף</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>דוח גלישה — 7 ימים אחרונים</h2>
+    <table>
+      <thead>
+        <tr><th>דומיין</th><th>פניות</th><th>נראה לאחרונה</th><th>נחסם</th></tr>
+      </thead>
+      <tbody id="reportBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+async function api(path, opts) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (res.status === 401) { location.href = '/login.html'; throw new Error('unauth'); }
+  return res.json();
+}
+
+function fmtRemaining(expiresAt) {
+  const ms = expiresAt - Date.now();
+  if (ms <= 0) return '00:00';
+  const total = Math.floor(ms / 1000);
+  const m = String(Math.floor(total / 60)).padStart(2, '0');
+  const s = String(total % 60).padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+let sites = [];
+
+function renderSites() {
+  const el = document.getElementById('sites');
+  el.innerHTML = sites.map((site) => `
+    <div class="site-row" data-id="${site.id}">
+      <span class="site-name">${site.name}<br><span class="muted">${site.domains.join(', ')}</span></span>
+      <span class="status ${site.blocked ? 'blocked' : 'open'}">
+        ${site.blocked ? 'חסום' : 'פתוח · ' + fmtRemaining(site.expiresAt)}
+      </span>
+      ${site.blocked ? `
+        <form class="grant-form" onsubmit="grant(event, ${site.id})">
+          <input type="number" min="1" max="1440" value="15" required />
+          <span class="muted">דקות</span>
+          <button type="submit">פתח</button>
+        </form>
+      ` : `
+        <button class="secondary" onclick="revoke(${site.id})">חסום עכשיו</button>
+      `}
+      <button class="secondary" onclick="editDomains(${site.id})" title="עריכת רשימת הדומיינים">ערוך דומיינים</button>
+      <button class="danger" onclick="removeSite(${site.id})" title="הסר מהרשימה">מחק</button>
+    </div>
+  `).join('') || '<p class="muted">אין עדיין אתרים ברשימה.</p>';
+}
+
+async function loadSites() {
+  sites = await api('/api/sites');
+  renderSites();
+}
+
+window.grant = async (e, id) => {
+  e.preventDefault();
+  const minutes = Number(e.target.querySelector('input').value);
+  await api(`/api/sites/${id}/grant`, { method: 'POST', body: JSON.stringify({ minutes }) });
+  await loadSites();
+};
+
+window.revoke = async (id) => {
+  await api(`/api/sites/${id}/revoke`, { method: 'POST' });
+  await loadSites();
+};
+
+window.editDomains = async (id) => {
+  const site = sites.find((s) => s.id === id);
+  const input = prompt('דומיינים מופרדים בפסיק:', site.domains.join(', '));
+  if (input === null) return;
+  const domains = input.split(',').map((d) => d.trim()).filter(Boolean);
+  if (domains.length === 0) return alert('צריך לפחות דומיין אחד');
+  await api(`/api/sites/${id}`, { method: 'PATCH', body: JSON.stringify({ domains }) });
+  await loadSites();
+};
+
+window.removeSite = async (id) => {
+  if (!confirm('להסיר את האתר מהרשימה?')) return;
+  await api(`/api/sites/${id}`, { method: 'DELETE' });
+  await loadSites();
+};
+
+document.getElementById('addSiteBtn').addEventListener('click', async () => {
+  const name = document.getElementById('newName').value.trim();
+  const domains = document.getElementById('newDomains').value
+    .split(',').map((d) => d.trim()).filter(Boolean);
+  if (!name || domains.length === 0) return alert('יש למלא שם ולפחות דומיין אחד');
+  await api('/api/sites', { method: 'POST', body: JSON.stringify({ name, domains }) });
+  document.getElementById('newName').value = '';
+  document.getElementById('newDomains').value = '';
+  await loadSites();
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  location.href = '/login.html';
+});
+
+async function loadReport() {
+  const rows = await api('/api/report?days=7');
+  document.getElementById('reportBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.domain}</td>
+      <td>${r.queries}</td>
+      <td>${new Date(r.last_seen).toLocaleString('he-IL')}</td>
+      <td>${r.blocked_count > 0 ? 'כן' : 'לא'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="muted">אין נתונים עדיין</td></tr>';
+}
+
+(async () => {
+  const s = await (await fetch('/api/session')).json();
+  if (s.needsSetup) return location.href = '/setup.html';
+  if (!s.loggedIn) return location.href = '/login.html';
+  await loadSites();
+  await loadReport();
+  setInterval(renderSites, 1000);   // live countdown
+  setInterval(loadSites, 5000);     // pick up expiry / external changes
+  setInterval(loadReport, 30000);
+})();
+</script>
+</body>
+</html>

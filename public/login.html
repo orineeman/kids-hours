@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>התחברות</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="wrap">
+  <div class="card auth-card">
+    <h1>כניסת הורה</h1>
+    <form id="loginForm">
+      <label for="username">שם משתמש</label>
+      <input type="text" id="username" required autocomplete="username" />
+      <label for="password">סיסמה</label>
+      <input type="password" id="password" required autocomplete="current-password" />
+      <button type="submit">התחבר</button>
+      <div class="error" id="err" hidden></div>
+    </form>
+  </div>
+</div>
+<script>
+(async () => {
+  const s = await (await fetch('/api/session')).json();
+  if (s.needsSetup) location.href = '/setup.html';
+  else if (s.loggedIn) location.href = '/';
+})();
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('err');
+  errEl.hidden = true;
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (res.ok) location.href = '/';
+  else {
+    errEl.textContent = 'שם משתמש או סיסמה שגויים';
+    errEl.hidden = false;
+  }
+});
+</script>
+</body>
+</html>
