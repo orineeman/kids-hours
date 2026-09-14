@@ -1,0 +1,49 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'installer/**'
+      - 'src/**'
+      - 'public/**'
+      - 'install/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-installer.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KidsNetControl-Setup
+          path: installer\dist\*.exe
+
+      - name: Publish to rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: installer-latest
+          name: KidsNetControl Installer (latest build)
+          body: |
+            מתקין Windows (.exe) שנבנה אוטומטית מהקומיט ${{ github.sha }}.
+            הורידו את הקובץ למטה, הריצו אותו על מחשב הילדים בתור Administrator,
+            ועקבו אחרי האשף.
+          prerelease: true
+          files: installer/dist/*.exe
