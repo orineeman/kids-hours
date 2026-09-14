@@ -11,7 +11,7 @@
   <div class="card auth-card">
     <h1>הגדרת חשבון הורה</h1>
     <p class="muted">זו הפעם הראשונה שהמערכת רצה — צור סיסמה לניהול.</p>
-    <form id="setupForm">
+    <form id="setupForm" autocomplete="off">
       <label for="password">סיסמה (לפחות 8 תווים)</label>
       <input type="password" id="password" required minlength="8" autocomplete="new-password" />
       <button type="submit">צור חשבון והמשך</button>
@@ -27,7 +27,9 @@
 
 document.getElementById('setupForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const password = document.getElementById('password').value;
+  const passwordEl = document.getElementById('password');
+  const password = passwordEl.value;
+  passwordEl.value = '';
   const errEl = document.getElementById('err');
   errEl.hidden = true;
   const res = await fetch('/api/setup', {

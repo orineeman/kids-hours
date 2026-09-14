@@ -10,9 +10,9 @@
 <div class="wrap">
   <div class="card auth-card">
     <h1>כניסת הורה</h1>
-    <form id="loginForm">
+    <form id="loginForm" autocomplete="off">
       <label for="password">סיסמה</label>
-      <input type="password" id="password" required autocomplete="current-password" />
+      <input type="password" id="password" required autocomplete="new-password" />
       <button type="submit">התחבר</button>
       <div class="error" id="err" hidden></div>
     </form>
@@ -27,7 +27,9 @@
 
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const password = document.getElementById('password').value;
+  const passwordEl = document.getElementById('password');
+  const password = passwordEl.value;
+  passwordEl.value = '';
   const errEl = document.getElementById('err');
   errEl.hidden = true;
   const res = await fetch('/api/login', {
