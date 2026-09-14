@@ -13,31 +13,48 @@
     <button class="secondary" id="logoutBtn">התנתק</button>
   </header>
 
-  <div class="card">
-    <h2>אתרים מנוהלים</h2>
-    <div id="sites"></div>
-  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="time">פתיחת זמן שימוש</button>
+    <button class="tab-btn" data-tab="domains">יצירת דומיינים</button>
+    <button class="tab-btn" data-tab="history">היסטוריה</button>
+  </nav>
 
-  <div class="card">
-    <h2>הוספת אתר לרשימה</h2>
-    <div class="add-site">
-      <input type="text" id="newName" placeholder="שם (למשל: יוטיוב)" />
-      <input type="text" id="newDomains" placeholder="דומיינים מופרדים בפסיק (למשל: youtube.com,ytimg.com)" />
-      <button id="addSiteBtn">הוסף</button>
+  <section id="tab-time" class="tab-panel active">
+    <div class="card">
+      <h2>אתרים מנוהלים</h2>
+      <div id="sitesTime"></div>
     </div>
-  </div>
+  </section>
 
-  <div class="card">
-    <h2>דוח גלישה — 7 ימים אחרונים</h2>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>דומיין</th><th>פניות</th><th>נראה לאחרונה</th><th>נחסם</th></tr>
-        </thead>
-        <tbody id="reportBody"></tbody>
-      </table>
+  <section id="tab-domains" class="tab-panel">
+    <div class="card">
+      <h2>אתרים מנוהלים</h2>
+      <div id="sitesDomains"></div>
     </div>
-  </div>
+
+    <div class="card">
+      <h2>הוספת אתר לרשימה</h2>
+      <div class="add-site">
+        <input type="text" id="newName" placeholder="שם (למשל: יוטיוב)" />
+        <input type="text" id="newDomains" placeholder="דומיינים מופרדים בפסיק (למשל: youtube.com,ytimg.com)" />
+        <button id="addSiteBtn">הוסף</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-history" class="tab-panel">
+    <div class="card">
+      <h2>דוח גלישה — 7 ימים אחרונים</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>דומיין</th><th>פניות</th><th>נראה לאחרונה</th><th>נחסם</th></tr>
+          </thead>
+          <tbody id="reportBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -60,9 +77,25 @@ function fmtRemaining(expiresAt) {
 }
 
 let sites = [];
+let activeTab = 'time';
 
-function renderSites() {
-  const el = document.getElementById('sites');
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.querySelectorAll('.tab-panel').forEach((panel) => {
+    panel.classList.toggle('active', panel.id === `tab-${tab}`);
+  });
+  if (tab === 'history') loadReport();
+}
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+function renderSitesTime() {
+  const el = document.getElementById('sitesTime');
   el.innerHTML = sites.map((site) => `
     <div class="site-row" data-id="${site.id}">
       <span class="site-name">${site.name}<br><span class="muted">${site.domains.join(', ')}</span></span>
@@ -78,10 +111,24 @@ function renderSites() {
       ` : `
         <button class="secondary" onclick="revoke(${site.id})">חסום עכשיו</button>
       `}
+    </div>
+  `).join('') || '<p class="muted">אין עדיין אתרים ברשימה.</p>';
+}
+
+function renderSitesDomains() {
+  const el = document.getElementById('sitesDomains');
+  el.innerHTML = sites.map((site) => `
+    <div class="site-row" data-id="${site.id}">
+      <span class="site-name">${site.name}<br><span class="muted">${site.domains.join(', ')}</span></span>
       <button class="secondary" onclick="editDomains(${site.id})" title="עריכת רשימת הדומיינים">ערוך דומיינים</button>
       <button class="danger" onclick="removeSite(${site.id})" title="הסר מהרשימה">מחק</button>
     </div>
   `).join('') || '<p class="muted">אין עדיין אתרים ברשימה.</p>';
+}
+
+function renderSites() {
+  renderSitesTime();
+  renderSitesDomains();
 }
 
 async function loadSites() {
@@ -165,10 +212,9 @@ function resetIdleTimer() {
   if (s.needsSetup) return location.href = '/setup.html';
   if (!s.loggedIn) return location.href = '/login.html';
   await loadSites();
-  await loadReport();
   setInterval(renderSites, 1000);   // live countdown
   setInterval(loadSites, 5000);     // pick up expiry / external changes
-  setInterval(loadReport, 30000);
+  setInterval(() => { if (activeTab === 'history') loadReport(); }, 30000);
   resetIdleTimer();
 })();
 </script>
