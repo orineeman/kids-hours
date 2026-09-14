@@ -94,8 +94,25 @@ Invoke-Step -Name 'בדיקת/התקנת Node.js' -Critical $true -Action {
 Invoke-Step -Name 'התקנת חבילות npm' -Critical $true -Action {
     Push-Location $AppDir
     try {
-        & npm.cmd install --omit=dev --no-fund --no-audit 2>&1 | ForEach-Object { Write-Log "npm: $_" }
+        $npmOutput = & npm.cmd install --omit=dev --no-fund --no-audit 2>&1
+        $npmOutput | ForEach-Object { Write-Log "npm: $_" }
         if ($LASTEXITCODE -ne 0) {
+            $outputText = $npmOutput -join "`n"
+            if ($outputText -match 'SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_VERIFY_LEAF_SIGNATURE|CERT_') {
+                # קורה כשתוכנת אנטי-וירוס/VPN מיירטת חיבורי HTTPS (סריקת SSL) ומחליפה
+                # את אישור npm באישור משלה, ששובר את אימות האישורים. עוקפים זמנית.
+                Write-Log "נראה שתוכנת אנטי-וירוס/VPN על המחשב הזה מיירטת חיבורי HTTPS ושוברת את אימות האישורים של npm. מנסה לעקוף זמנית..." 'WARN'
+                & npm.cmd config set strict-ssl false
+                $retryOutput = & npm.cmd install --omit=dev --no-fund --no-audit 2>&1
+                $retryOutput | ForEach-Object { Write-Log "npm(retry): $_" }
+                $retryExitCode = $LASTEXITCODE
+                & npm.cmd config set strict-ssl true
+                if ($retryExitCode -ne 0) {
+                    throw "npm install נכשל גם אחרי עקיפת בדיקת האישורים. כנראה תוכנת אנטי-וירוס/VPN חוסמת את החיבור לגמרי — כבו זמנית את 'סריקת HTTPS' / 'SSL scan' שלה ונסו להריץ את ההתקנה שוב."
+                }
+                Write-Log "npm install הצליח אחרי עקיפה זמנית של בדיקת האישורים (strict-ssl הוחזר למצב מאובטח)."
+                return
+            }
             throw "npm install נכשל (exit code $LASTEXITCODE). אם מדובר בשגיאת קומפילציה של better-sqlite3, ייתכן שנדרשים Visual Studio Build Tools."
         }
     } finally {
