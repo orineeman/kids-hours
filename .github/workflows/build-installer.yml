@@ -17,17 +17,17 @@ permissions:
   contents: write
 
 env:
-  NODE_VERSION: 22.11.0
+  # better-sqlite3 v13's prebuilt binary needs NAPI_VERSION=10, which
+  # Node only supports from 22.14 onward — 22.11.0 caused a runtime
+  # crash even with the prebuilt (see --ignore-scripts note below).
+  # Using 24.x sidesteps that version floor entirely.
+  NODE_VERSION: 24.19.0
 
 jobs:
   build:
-    # Pinned (not windows-latest): at the time of writing, windows-latest
-    # ships a Visual Studio release newer than node-gyp@10.x knows how to
-    # parse ("unknown version \"undefined\"" even with VCINSTALLDIR set),
-    # which breaks compiling better-sqlite3 (no prebuilt binary exists for
-    # it, so it always builds from source). windows-2022 ships VS2022,
-    # which node-gyp handles correctly.
-    runs-on: windows-2022
+    # No Visual Studio / node-gyp dependency here (see the --ignore-scripts
+    # note below), so no need to pin a specific runner image for that.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -51,24 +51,20 @@ jobs:
           $env:Path = "$PWD\installer\runtime;$env:Path"
           node -v
 
-          # better-sqlite3 has no prebuilt binary and always compiles via
-          # node-gyp. node-gyp's own Visual Studio auto-detection can fail
-          # to recognize whatever VS version this runner image ships with,
-          # so set up the MSVC build environment explicitly (this is what
-          # "VCINSTALLDIR not set, not running in VS Command Prompt" means)
-          # instead of relying on that detection.
-          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $vsPath) { throw "vswhere could not find a Visual Studio install with the C++ (VC.Tools.x86.x64) workload." }
-          $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat'
-          cmd /c "`"$vcvars`" x64 & set" | ForEach-Object {
-              if ($_ -match '^([^=]+)=(.*)$') {
-                  [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
-              }
-          }
-          Write-Host "VCINSTALLDIR = $env:VCINSTALLDIR"
-
-          npm install --omit=dev --no-fund --no-audit
+          # better-sqlite3 v13 ships working prebuilt binaries directly in
+          # its npm tarball (node_modules/better-sqlite3/prebuilds/win32-x64.node)
+          # — one N-API binary that covers every Node version, no compiler
+          # needed. But npm's default behavior for *any* package with a
+          # binding.gyp and no explicit "install" script is to compile it
+          # from source anyway via node-gyp, ignoring that prebuilt file.
+          # On Node versions before 22.14 that source build is a known
+          # broken combination (napi_version mismatch) and produces a
+          # binary that loads fine but segfaults (0xC0000005) the moment
+          # it's actually used — exactly what happened on a real install.
+          # --ignore-scripts skips that unnecessary/broken rebuild so the
+          # tested prebuilt binary is used instead (verified none of our
+          # dependencies need an install/postinstall script to function).
+          npm install --omit=dev --no-fund --no-audit --ignore-scripts
 
       - name: Download cloudflared (bundled into the installer)
         shell: pwsh
