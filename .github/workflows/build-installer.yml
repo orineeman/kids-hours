@@ -21,7 +21,13 @@ env:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned (not windows-latest): at the time of writing, windows-latest
+    # ships a Visual Studio release newer than node-gyp@10.x knows how to
+    # parse ("unknown version \"undefined\"" even with VCINSTALLDIR set),
+    # which breaks compiling better-sqlite3 (no prebuilt binary exists for
+    # it, so it always builds from source). windows-2022 ships VS2022,
+    # which node-gyp handles correctly.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
