@@ -44,6 +44,24 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $env:Path = "$PWD\installer\runtime;$env:Path"
           node -v
+
+          # better-sqlite3 has no prebuilt binary and always compiles via
+          # node-gyp. node-gyp's own Visual Studio auto-detection can fail
+          # to recognize whatever VS version this runner image ships with,
+          # so set up the MSVC build environment explicitly (this is what
+          # "VCINSTALLDIR not set, not running in VS Command Prompt" means)
+          # instead of relying on that detection.
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) { throw "vswhere could not find a Visual Studio install with the C++ (VC.Tools.x86.x64) workload." }
+          $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat'
+          cmd /c "`"$vcvars`" x64 & set" | ForEach-Object {
+              if ($_ -match '^([^=]+)=(.*)$') {
+                  [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+              }
+          }
+          Write-Host "VCINSTALLDIR = $env:VCINSTALLDIR"
+
           npm install --omit=dev --no-fund --no-audit
 
       - name: Download cloudflared (bundled into the installer)
