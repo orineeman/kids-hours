@@ -16,6 +16,9 @@ on:
 permissions:
   contents: write
 
+env:
+  NODE_VERSION: 22.11.0
+
 jobs:
   build:
     runs-on: windows-latest
@@ -24,6 +27,30 @@ jobs:
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
+
+      - name: Download portable Node.js runtime (bundled into the installer)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = "https://nodejs.org/dist/v$env:NODE_VERSION/node-v$env:NODE_VERSION-win-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile node.zip
+          Expand-Archive -Path node.zip -DestinationPath . -Force
+          New-Item -ItemType Directory -Force -Path installer\runtime | Out-Null
+          Copy-Item -Path "node-v$env:NODE_VERSION-win-x64\*" -Destination installer\runtime -Recurse -Force
+
+      - name: Install npm dependencies (using the bundled Node, so native modules match)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:Path = "$PWD\installer\runtime;$env:Path"
+          node -v
+          npm install --omit=dev --no-fund --no-audit
+
+      - name: Download cloudflared (bundled into the installer)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile installer\runtime\cloudflared.exe
 
       - name: Compile installer
         shell: pwsh

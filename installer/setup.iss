@@ -1,13 +1,19 @@
-﻿; מתקין Windows עבור מערכת בקרת האינטרנט לילדים (KidsNetControl).
+﻿﻿; מתקין Windows עבור מערכת בקרת האינטרנט לילדים (KidsNetControl).
 ; מקומפל אוטומטית ע"י GitHub Actions (.github/workflows/build-installer.yml)
 ; על ריצת Windows, כי אין כאן מחשב Windows לקמפל עליו מקומית.
 ;
+; ה-workflow מוריד Node.js (runtime\), מריץ npm install (node_modules\),
+; ומוריד cloudflared.exe (runtime\) *לפני* הקומפילציה — כל זה נארז בתוך
+; ה-.exe. כך שההתקנה בפועל על מחשב הילדים לא נוגעת באינטרנט בכלל (חוץ
+; משלב Cloudflare Tunnel האופציונלי, שמטבעו דורש התחברות מקוונת) ולא
+; תלויה ב-winget/npm registry/אנטי-וירוס של אותו מחשב.
+;
 ; מריץ, כ-Administrator: מעתיק את הקבצים, ואז מריץ installer\postinstall.ps1
-; שמבצע את כל שאר ההתקנה (Node.js, npm install, שירות, הקשחה, Cloudflare,
-; הורדת הרשאות מחשבון הילד) — ראה postinstall.ps1 לפרטים.
+; שמבצע את כל שאר ההתקנה (שירות, הקשחה, Cloudflare, הורדת הרשאות מחשבון
+; הילד) — ראה postinstall.ps1 לפרטים.
 
 #define MyAppName "בקרת אינטרנט לילדים"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Ori Neeman"
 #define MyServiceName "KidsNetControl"
 
@@ -27,13 +33,14 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#MyAppName}
-ArchitecturesAllowed=x64compatible arm64
-ArchitecturesInstallIn64BitMode=x64compatible arm64
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
 Source: "..\src\*"; DestDir: "{app}\src"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\public\*"; DestDir: "{app}\public"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\install\*"; DestDir: "{app}\install"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\node_modules\*"; DestDir: "{app}\node_modules"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\package.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\package-lock.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion

@@ -1,15 +1,17 @@
-﻿# מורץ אוטומטית ע"י תהליך ההסרה (Uninstall), כ-Administrator, לפני שהקבצים
+﻿﻿# מורץ אוטומטית ע"י תהליך ההסרה (Uninstall), כ-Administrator, לפני שהקבצים
 # נמחקים. מנקה את השירות, ה-DNS, ה-Firewall, ומדיניות Chrome. לא משחזר
 # הרשאות Administrator לחשבון הילד באופן אוטומטי (החלטת בטיחות מכוונת).
 
 $ErrorActionPreference = 'Continue'
 $InstallerDir = $PSScriptRoot
 $AppDir = Split-Path -Parent $InstallerDir
+$NodeExe = Join-Path $AppDir 'runtime\node.exe'
+$CloudflaredExe = Join-Path $AppDir 'runtime\cloudflared.exe'
 
 Write-Host "== מסיר שירות KidsNetControl ==" -ForegroundColor Cyan
 try {
     Stop-Service -Name 'KidsNetControl' -Force -ErrorAction SilentlyContinue
-    & node.exe (Join-Path $AppDir 'install\service-uninstall.js')
+    & $NodeExe (Join-Path $AppDir 'install\service-uninstall.js')
     Start-Sleep -Seconds 3
 } catch {
     Write-Host "שגיאה בהסרת השירות: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -36,7 +38,7 @@ $cfSvc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
 if ($cfSvc) {
     Write-Host "== מסיר שירות cloudflared ==" -ForegroundColor Cyan
     try {
-        & cloudflared.exe service uninstall
+        & $CloudflaredExe service uninstall
     } catch {
         Write-Host "שגיאה בהסרת cloudflared: $($_.Exception.Message)" -ForegroundColor Yellow
     }
