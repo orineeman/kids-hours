@@ -1,4 +1,4 @@
-﻿﻿; מתקין Windows עבור מערכת בקרת האינטרנט לילדים (KidsNetControl).
+﻿; מתקין Windows עבור מערכת בקרת האינטרנט לילדים (KidsNetControl).
 ; מקומפל אוטומטית ע"י GitHub Actions (.github/workflows/build-installer.yml)
 ; על ריצת Windows, כי אין כאן מחשב Windows לקמפל עליו מקומית.
 ;
