@@ -1,4 +1,4 @@
-# הרצה כ-Administrator בלבד, על מחשב הילדים:
+﻿# הרצה כ-Administrator בלבד, על מחשב הילדים:
 #   powershell -ExecutionPolicy Bypass -File install\harden.ps1
 #
 # מבצע את כל שכבות ההקשחה נגד עקיפה שמתוארות בתוכנית:

@@ -24,20 +24,30 @@ const svc = new Service({
   ],
 });
 
-svc.on('install', () => {
-  console.log('Service installed. Configuring auto-restart on failure...');
+// node-windows doesn't set crash-recovery itself; do it with sc.exe:
+// restart after 5s on 1st/2nd/subsequent failures, reset the failure
+// counter after a day of stable running. Retried because sc.exe can run
+// before SCM has fully committed the just-created service.
+function configureAutoRestart(attempt = 1) {
   try {
-    // node-windows doesn't set crash-recovery itself; do it with sc.exe:
-    // restart after 5s on 1st/2nd/subsequent failures, reset the failure
-    // counter after a day of stable running.
     execFileSync('sc', [
       'failure', SERVICE_NAME,
       'reset=', '86400',
       'actions=', 'restart/5000/restart/5000/restart/5000',
     ]);
+    console.log('Auto-restart on failure configured.');
   } catch (err) {
-    console.error('Could not configure auto-restart (run as Administrator):', err.message);
+    if (attempt < 5) {
+      setTimeout(() => configureAutoRestart(attempt + 1), 2000);
+      return;
+    }
+    console.error('Could not configure auto-restart after retries:', err.stderr?.toString() || err.message);
   }
+}
+
+svc.on('install', () => {
+  console.log('Service installed. Configuring auto-restart on failure...');
+  configureAutoRestart();
   svc.start();
   console.log(`Service "${SERVICE_NAME}" installed and started.`);
 });

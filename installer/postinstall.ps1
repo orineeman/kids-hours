@@ -52,6 +52,30 @@ function Invoke-Step {
     }
 }
 
+# מריץ תוכנית חיצונית ורושם את הפלט שלה ליומן. חייב לעטוף כל קריאה
+# כזו: תוכניות חיצוניות רבות (cloudflared למשל) כותבות שורות מידע
+# רגילות ל-stderr, ו-PowerShell עם $ErrorActionPreference='Stop' הופך
+# כל שורת stderr שעוברת דרך 2>&1 לשגיאה עוצרת — גם כשהתוכנית בעצם
+# הצליחה. לכן מבטלים את ErrorActionPreference זמנית סביב הקריאה, ובודקים
+# הצלחה/כישלון אמיתיים רק לפי קוד היציאה בפועל.
+function Invoke-NativeLogged {
+    param(
+        [Parameter(Mandatory = $true)][string]$Prefix,
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $FilePath @Arguments 2>&1 | ForEach-Object { Write-Log "$Prefix`: $_" }
+    } finally {
+        $ErrorActionPreference = $prevEAP
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Prefix נכשל (קוד יציאה $LASTEXITCODE)"
+    }
+}
+
 Write-Log "התחלת התקנה. תיקיית אפליקציה: $AppDir"
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
@@ -93,11 +117,9 @@ Invoke-Step -Name 'התקנת שירות Windows (KidsNetControl)' -Critical $tr
 
 # --- שלב 2: הקשחה ---
 Invoke-Step -Name 'הקשחה נגד עקיפה (DNS/Chrome/Firewall/הרשאות)' -Critical $false -Action {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $AppDir 'install\harden.ps1') 2>&1 |
-        ForEach-Object { Write-Log "harden: $_" }
-    if ($LASTEXITCODE -ne 0) {
-        throw "harden.ps1 הסתיים עם קוד שגיאה $LASTEXITCODE"
-    }
+    Invoke-NativeLogged -Prefix 'harden' -FilePath 'powershell.exe' -Arguments @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $AppDir 'install\harden.ps1')
+    )
 }
 
 # --- שלב 3: Cloudflare Tunnel (אופציונלי) ---
@@ -118,15 +140,18 @@ if ($SetupCloudflare) {
         }
 
         $existingId = $null
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         $tunnelListOutput = & $CloudflaredExe tunnel list 2>&1
+        $ErrorActionPreference = $prevEAP
         foreach ($line in $tunnelListOutput) {
-            if ($line -match "^\s*([0-9a-fA-F-]{36})\s+$([regex]::Escape($TunnelName))\s") {
+            if ("$line" -match "^\s*([0-9a-fA-F-]{36})\s+$([regex]::Escape($TunnelName))\s") {
                 $existingId = $matches[1]
             }
         }
         if (-not $existingId) {
             Write-Log "יוצר טאנל חדש בשם '$TunnelName'..."
-            & $CloudflaredExe tunnel create $TunnelName 2>&1 | ForEach-Object { Write-Log "cloudflared: $_" }
+            Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('tunnel', 'create', $TunnelName)
         } else {
             Write-Log "טאנל '$TunnelName' כבר קיים (ID $existingId) — משתמש בו מחדש."
         }
@@ -138,7 +163,7 @@ if ($SetupCloudflare) {
         }
 
         $fullHostname = "$CloudflareSubdomain.$CloudflareDomain"
-        & $CloudflaredExe tunnel route dns $TunnelName $fullHostname 2>&1 | ForEach-Object { Write-Log "cloudflared: $_" }
+        Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('tunnel', 'route', 'dns', $TunnelName, $fullHostname)
 
         $configYml = @"
 tunnel: $TunnelName
@@ -153,10 +178,10 @@ ingress:
 
         $cfSvc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
         if ($cfSvc) {
-            & $CloudflaredExe service uninstall 2>&1 | ForEach-Object { Write-Log "cloudflared: $_" }
+            Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('service', 'uninstall')
             Start-Sleep -Seconds 2
         }
-        & $CloudflaredExe service install 2>&1 | ForEach-Object { Write-Log "cloudflared: $_" }
+        Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('service', 'install')
         Start-Sleep -Seconds 3
         $cfSvc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
         if (-not $cfSvc -or $cfSvc.Status -ne 'Running') {
