@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>בקרת אינטרנט לילדים</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -17,6 +18,8 @@
     <button class="tab-btn active" data-tab="time">פתיחת זמן שימוש</button>
     <button class="tab-btn" data-tab="domains">יצירת דומיינים</button>
     <button class="tab-btn" data-tab="history">היסטוריה</button>
+    <button class="tab-btn" data-tab="devices">מכשירים</button>
+    <button class="tab-btn" data-tab="settings">הגדרות</button>
   </nav>
 
   <section id="tab-time" class="tab-panel active">
@@ -55,6 +58,29 @@
       </div>
     </div>
   </section>
+
+  <section id="tab-devices" class="tab-panel">
+    <div class="card">
+      <h2>מכשירים מסונכרנים</h2>
+      <p class="muted">כל מחשב שסונכרן עם הענן דרך Device Token (ראו cloud/README.md). אפשר לבטל מכשיר אבוד/חשוד — הוא יפסיק להסתנכרן מיד.</p>
+      <div id="devicesList"></div>
+    </div>
+  </section>
+
+  <section id="tab-settings" class="tab-panel">
+    <div class="card">
+      <h2>החלפת סיסמה</h2>
+      <form id="passwordForm" autocomplete="off">
+        <label for="currentPassword">סיסמה נוכחית</label>
+        <input type="password" id="currentPassword" required autocomplete="current-password" />
+        <label for="newPassword">סיסמה חדשה (לפחות 8 תווים)</label>
+        <input type="password" id="newPassword" required minlength="8" autocomplete="new-password" />
+        <button type="submit">עדכן סיסמה</button>
+        <div class="error" id="passwordErr" hidden></div>
+        <div class="ok-msg" id="passwordOk" hidden>הסיסמה עודכנה בהצלחה.</div>
+      </form>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -65,6 +91,13 @@ async function api(path, opts) {
   });
   if (res.status === 401) { location.href = '/login.html'; throw new Error('unauth'); }
   return res.json();
+}
+
+// Site names/domains are parent-entered, but the report's domains come
+// from DNS traffic reported by the device — escape everything rendered as
+// HTML rather than trusting either source.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function fmtRemaining(expiresAt) {
@@ -88,6 +121,7 @@ function switchTab(tab) {
     panel.classList.toggle('active', panel.id === `tab-${tab}`);
   });
   if (tab === 'history') loadReport();
+  if (tab === 'devices') loadDevices();
 }
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -112,7 +146,7 @@ function renderSitesTime() {
 
   el.innerHTML = sites.map((site) => `
     <div class="site-row" data-id="${site.id}">
-      <span class="site-name">${site.name}<br><span class="muted">${site.domains.join(', ')}</span></span>
+      <span class="site-name">${escapeHtml(site.name)}<br><span class="muted">${escapeHtml(site.domains.join(', '))}</span></span>
       <span class="status ${site.blocked ? 'blocked' : 'open'}">
         ${site.blocked ? 'חסום' : 'פתוח · ' + fmtRemaining(site.expiresAt)}
       </span>
@@ -144,7 +178,7 @@ function renderSitesDomains() {
   const el = document.getElementById('sitesDomains');
   el.innerHTML = sites.map((site) => `
     <div class="site-row" data-id="${site.id}">
-      <span class="site-name">${site.name}<br><span class="muted">${site.domains.join(', ')}</span></span>
+      <span class="site-name">${escapeHtml(site.name)}<br><span class="muted">${escapeHtml(site.domains.join(', '))}</span></span>
       <button class="secondary" onclick="editDomains(${site.id})" title="עריכת רשימת הדומיינים">ערוך דומיינים</button>
       <button class="danger" onclick="removeSite(${site.id})" title="הסר מהרשימה">מחק</button>
     </div>
@@ -203,7 +237,9 @@ document.getElementById('addSiteBtn').addEventListener('click', async () => {
   const domains = document.getElementById('newDomains').value
     .split(',').map((d) => d.trim()).filter(Boolean);
   if (!name || domains.length === 0) return alert('יש למלא שם ולפחות דומיין אחד');
-  await api('/api/sites', { method: 'POST', body: JSON.stringify({ name, domains }) });
+  const result = await api('/api/sites', { method: 'POST', body: JSON.stringify({ name, domains }) });
+  if (result?.error === 'duplicate_name') return alert('כבר קיים אתר בשם הזה.');
+  if (result?.error) return alert('שגיאה בהוספת האתר.');
   document.getElementById('newName').value = '';
   document.getElementById('newDomains').value = '';
   await loadSites();
@@ -218,13 +254,60 @@ async function loadReport() {
   const rows = await api('/api/report?days=7');
   document.getElementById('reportBody').innerHTML = rows.map((r) => `
     <tr>
-      <td>${r.domain}</td>
+      <td>${escapeHtml(r.domain)}</td>
       <td>${r.queries}</td>
       <td>${new Date(r.last_seen).toLocaleString('he-IL')}</td>
       <td>${r.blocked_count > 0 ? 'כן' : 'לא'}</td>
     </tr>
   `).join('') || '<tr><td colspan="4" class="muted">אין נתונים עדיין</td></tr>';
 }
+
+function fmtDeviceTime(ms) {
+  return ms ? new Date(ms).toLocaleString('he-IL') : 'מעולם לא';
+}
+
+async function loadDevices() {
+  const devices = await api('/api/devices');
+  document.getElementById('devicesList').innerHTML = devices.map((d) => `
+    <div class="site-row" data-id="${escapeHtml(d.id)}">
+      <span class="site-name">${escapeHtml(d.name)}<br>
+        <span class="muted">
+          סונכרן לאחרונה: ${fmtDeviceTime(d.last_synced_at)}${d.last_ip ? ' · ' + escapeHtml(d.last_ip) : ''}
+          ${d.revoked_at ? '<br><span class="status blocked">מבוטל</span>' : ''}
+        </span>
+      </span>
+      ${d.revoked_at ? '' : `<button class="danger" onclick="revokeDevice('${encodeURIComponent(d.id)}')" title="ביטול המכשיר">בטל מכשיר</button>`}
+    </div>
+  `).join('') || '<p class="muted">אין עדיין מכשיר מסונכרן.</p>';
+}
+
+window.revokeDevice = async (id) => {
+  if (!confirm('לבטל את המכשיר? הוא יפסיק להסתנכרן מיד.')) return;
+  await api(`/api/devices/${id}`, { method: 'DELETE' });
+  await loadDevices();
+};
+
+document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const currentPassword = document.getElementById('currentPassword').value;
+  const newPassword = document.getElementById('newPassword').value;
+  const errEl = document.getElementById('passwordErr');
+  const okEl = document.getElementById('passwordOk');
+  errEl.hidden = true;
+  okEl.hidden = true;
+  const res = await fetch('/api/password', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  document.getElementById('passwordForm').reset();
+  if (res.ok) {
+    okEl.hidden = false;
+  } else {
+    errEl.textContent = res.status === 401 ? 'הסיסמה הנוכחית שגויה.' : 'שגיאה בעדכון הסיסמה.';
+    errEl.hidden = false;
+  }
+});
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 let idleTimer;

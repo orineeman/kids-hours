@@ -17,6 +17,7 @@ npx wrangler d1 create kids-hours
 # מדביקים את ה-database_id שמודפס לתוך wrangler.toml (שדה database_id)
 
 npm run db:migrate:remote   # מריץ את migrations/0001_init.sql על ה-D1 האמיתי
+npm run db:migrate:remote:0002   # מריץ את migrations/0002_login_lockout.sql (נעילה אחרי ניסיונות כניסה כושלים)
 
 npx wrangler secret put SESSION_SECRET
 # מדביקים מחרוזת אקראית ארוכה, למשל מה-output של: openssl rand -hex 32
@@ -38,7 +39,19 @@ npm run device:create -- "kids-pc"
 
 זה מדפיס טוקן (`dev_xxxx.yyyy`) **פעם אחת** — מעתיקים אותו לשדה "Device Token" באשף ההתקנה של Windows, ומריצים את פקודת ה-`wrangler d1 execute` שהוא מדפיס כדי לרשום אותו בפועל.
 
-לביטול מכשיר (מחשב אבד/נחשד): `DELETE /api/devices/<id>` מלוח הבקרה, או ידנית ב-D1.
+לביטול מכשיר (מחשב אבד/נחשד): בטאב "מכשירים" בלוח הבקרה, או ידנית ב-D1.
+
+## החלפת סיסמת הורה
+
+בטאב "הגדרות" בלוח הבקרה — דורש הקלדת הסיסמה הנוכחית.
+
+## הגנה מפני ניחוש סיסמה
+
+אחרי 5 ניסיונות כניסה כושלים ברצף, החשבון ננעל ל-15 דקות (וכל ניסיון נוסף
+בזמן הנעילה מאריך אותה מחדש) — ראו `PARENT_USERNAME`/`recordLoginFailure`
+ב-`src/db.js` ו-`/api/login` ב-`src/index.js`. דורש הרצת migration
+`0002_login_lockout.sql` (ראו למעלה) לפני שהשדות `failed_attempts`/
+`locked_until` קיימים בטבלה.
 
 ## העברת קטלוג האתרים הקיים (אופציונלי)
 

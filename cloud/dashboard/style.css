@@ -120,7 +120,12 @@ button.danger { background: var(--danger); }
 .auth-card label { display: block; margin: 10px 0 4px; font-size: 0.9rem; color: var(--muted); }
 .auth-card button { width: 100%; margin-top: 16px; }
 
+#passwordForm { max-width: 320px; }
+#passwordForm label { display: block; margin: 10px 0 4px; font-size: 0.9rem; color: var(--muted); }
+#passwordForm button { margin-top: 16px; }
+
 .error { color: var(--danger); font-size: 0.9rem; margin-top: 8px; }
+.ok-msg { color: var(--success); font-size: 0.9rem; margin-top: 8px; }
 .muted { color: var(--muted); font-size: 0.85rem; }
 
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }

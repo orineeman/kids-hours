@@ -14,6 +14,11 @@ export async function getSiteById(db, id) {
   return s ? { ...s, domains: JSON.parse(s.domains) } : null;
 }
 
+export async function getSiteByName(db, name) {
+  const s = await db.prepare('SELECT * FROM sites WHERE name = ?').bind(name).first();
+  return s ? { ...s, domains: JSON.parse(s.domains) } : null;
+}
+
 export async function createSite(db, name, domains) {
   const now = Date.now();
   const result = await db
@@ -93,6 +98,15 @@ export async function deleteOldDnsLogs(db, days = 30) {
   return result.meta.changes;
 }
 
+// Also called daily by scheduled() — grants otherwise accumulate forever
+// with no ongoing operational meaning once expired (nothing reads old
+// grant rows; getActiveGrant only ever looks at expires_at > now).
+export async function deleteOldGrants(db, days = 30) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const result = await db.prepare('DELETE FROM grants WHERE expires_at < ?').bind(cutoff).run();
+  return result.meta.changes;
+}
+
 export async function getRecentLog(db, limit = 200) {
   const { results } = await db
     .prepare('SELECT * FROM dns_log ORDER BY ts DESC LIMIT ?')
@@ -126,9 +140,33 @@ export async function upsertParentUser(db, username, passwordHash) {
   await db
     .prepare(
       `INSERT INTO parent_users (username, password_hash) VALUES (?, ?)
-       ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash`,
+       ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash,
+         failed_attempts = 0, locked_until = NULL`,
     )
     .bind(username, passwordHash)
+    .run();
+}
+
+// --- Login brute-force lockout (see /api/login in index.js) ---
+
+export async function recordLoginFailure(db, username, { threshold, lockoutMs }) {
+  const user = await getParentUser(db, username);
+  if (!user) return;
+  const failedAttempts = user.failed_attempts + 1;
+  // Once over the threshold, every further attempt re-extends the lock —
+  // this throttles an attacker to roughly one guess per lockoutMs instead
+  // of letting them resume full-speed the instant a fixed window elapses.
+  const lockedUntil = failedAttempts >= threshold ? Date.now() + lockoutMs : null;
+  await db
+    .prepare('UPDATE parent_users SET failed_attempts = ?, locked_until = ? WHERE username = ?')
+    .bind(failedAttempts, lockedUntil, username)
+    .run();
+}
+
+export async function recordLoginSuccess(db, username) {
+  await db
+    .prepare('UPDATE parent_users SET failed_attempts = 0, locked_until = NULL WHERE username = ?')
+    .bind(username)
     .run();
 }
 

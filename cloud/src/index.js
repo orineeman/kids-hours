@@ -1,6 +1,13 @@
 import * as db from './db.js';
 import * as auth from './auth.js';
 
+// After this many consecutive wrong passwords, the account locks for
+// LOCKOUT_MS (re-extended on every further attempt) — see
+// db.recordLoginFailure. Keeps a single internet-facing password from
+// being brute-forceable at network speed.
+const LOGIN_FAILURE_THRESHOLD = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -84,8 +91,23 @@ export default {
       if (pathname === '/api/login' && method === 'POST') {
         const body = await request.json().catch(() => null);
         const user = await db.getParentUser(env.DB, db.PARENT_USERNAME);
+        if (user?.locked_until && user.locked_until > Date.now()) {
+          const retryAfter = Math.ceil((user.locked_until - Date.now()) / 1000);
+          return json({ error: 'locked_out', retryAfterSeconds: retryAfter }, 429, {
+            'Retry-After': String(retryAfter),
+          });
+        }
         const ok = user && (await auth.verifyPassword(body?.password || '', user.password_hash));
-        if (!ok) return json({ error: 'invalid_credentials' }, 401);
+        if (!ok) {
+          if (user) {
+            await db.recordLoginFailure(env.DB, db.PARENT_USERNAME, {
+              threshold: LOGIN_FAILURE_THRESHOLD,
+              lockoutMs: LOGIN_LOCKOUT_MS,
+            });
+          }
+          return json({ error: 'invalid_credentials' }, 401);
+        }
+        await db.recordLoginSuccess(env.DB, db.PARENT_USERNAME);
         return json({ ok: true }, 200, { 'Set-Cookie': await auth.createSessionCookie(env.SESSION_SECRET) });
       }
 
@@ -109,8 +131,21 @@ export default {
             ? body.domains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
             : [];
           if (!name || domains.length === 0) return json({ error: 'invalid_input' }, 400);
+          if (await db.getSiteByName(env.DB, name)) return json({ error: 'duplicate_name' }, 400);
           const site = await db.createSite(env.DB, name, domains);
           return json(siteToJson(site, null));
+        }
+
+        if (pathname === '/api/password' && method === 'PATCH') {
+          const body = await request.json().catch(() => null);
+          const currentPassword = body?.currentPassword || '';
+          const newPassword = body?.newPassword || '';
+          if (!newPassword || newPassword.length < 8) return json({ error: 'invalid_input' }, 400);
+          const user = await db.getParentUser(env.DB, db.PARENT_USERNAME);
+          const ok = user && (await auth.verifyPassword(currentPassword, user.password_hash));
+          if (!ok) return json({ error: 'invalid_credentials' }, 401);
+          await db.upsertParentUser(env.DB, db.PARENT_USERNAME, await auth.hashPassword(newPassword));
+          return json({ ok: true });
         }
 
         const siteIdMatch = pathname.match(/^\/api\/sites\/(\d+)$/);
@@ -184,10 +219,13 @@ export default {
     }
   },
 
-  // Daily cron (see [triggers] in wrangler.toml) — dns_log has no other
-  // retention, so this is what keeps it from growing forever.
+  // Daily cron (see [triggers] in wrangler.toml) — dns_log and expired
+  // grants have no other retention, so this is what keeps them from
+  // growing forever.
   async scheduled(event, env) {
-    const deleted = await db.deleteOldDnsLogs(env.DB, 30);
-    console.log(`scheduled cleanup: deleted ${deleted} dns_log row(s) older than 30 days`);
+    const deletedLogs = await db.deleteOldDnsLogs(env.DB, 30);
+    console.log(`scheduled cleanup: deleted ${deletedLogs} dns_log row(s) older than 30 days`);
+    const deletedGrants = await db.deleteOldGrants(env.DB, 30);
+    console.log(`scheduled cleanup: deleted ${deletedGrants} expired grant row(s) older than 30 days`);
   },
 };

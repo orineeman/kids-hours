@@ -6,7 +6,6 @@ $ErrorActionPreference = 'Continue'
 $InstallerDir = $PSScriptRoot
 $AppDir = Split-Path -Parent $InstallerDir
 $NodeExe = Join-Path $AppDir 'runtime\node.exe'
-$CloudflaredExe = Join-Path $AppDir 'runtime\cloudflared.exe'
 
 Write-Host "== מסיר שירות KidsNetControl ==" -ForegroundColor Cyan
 try {
@@ -33,16 +32,6 @@ Remove-NetFirewallRule -DisplayName "KidsNetControl-*" -ErrorAction SilentlyCont
 Write-Host "== מסיר מדיניות Chrome (Secure DNS / חסימת תוספים) ==" -ForegroundColor Cyan
 Remove-Item -Path "HKLM:\SOFTWARE\Policies\Google\Chrome\ExtensionInstallBlocklist" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Google\Chrome" -Name "DnsOverHttpsMode" -ErrorAction SilentlyContinue
-
-$cfSvc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
-if ($cfSvc) {
-    Write-Host "== מסיר שירות cloudflared ==" -ForegroundColor Cyan
-    try {
-        & $CloudflaredExe service uninstall
-    } catch {
-        Write-Host "שגיאה בהסרת cloudflared: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-}
 
 Write-Host ""
 Write-Host "הסרה הושלמה." -ForegroundColor Green

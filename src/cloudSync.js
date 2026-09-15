@@ -15,6 +15,7 @@ import {
   setLogPushWatermark,
   getDnsLogSince,
   pruneDnsLogUpTo,
+  pruneOldKnownIps,
 } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -111,6 +112,9 @@ export function startCloudSync(apiBase) {
         console.error('cloudSync: log push failed:', err.message);
       }
     }
+    // Piggybacks on this timer rather than getting its own — no need for a
+    // third interval just to run an occasional local housekeeping delete.
+    pruneOldKnownIps(30);
     logTimer = setTimeout(logTick, LOG_PUSH_INTERVAL_MS);
   };
 

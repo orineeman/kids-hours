@@ -46,6 +46,7 @@ db.exec(`
     last_seen INTEGER NOT NULL,
     PRIMARY KEY (site_id, ip)
   );
+  CREATE INDEX IF NOT EXISTS idx_known_ips_last_seen ON known_ips(last_seen);
 `);
 
 db.prepare('INSERT OR IGNORE INTO sync_state (id) VALUES (1)').run();
@@ -164,4 +165,12 @@ export function recordKnownIp(siteId, ip) {
 
 export function getKnownIps(siteId) {
   return db.prepare('SELECT ip FROM known_ips WHERE site_id = ?').all(siteId).map((r) => r.ip);
+}
+
+// A CDN IP that stops serving a managed site's domains would otherwise stay
+// blocked (or in the firewall rule's remoteip list) forever — there is no
+// other event that ever removes a row from this table.
+export function pruneOldKnownIps(days = 30) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  db.prepare('DELETE FROM known_ips WHERE last_seen < ?').run(cutoff);
 }
