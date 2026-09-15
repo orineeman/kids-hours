@@ -6,7 +6,11 @@
 //   - stateless parent session cookies (HMAC-signed, no server-side store)
 //   - device bearer-token verification (sha256 comparison against a stored hash)
 
-const PBKDF2_ITERATIONS = 210_000;
+// Cloudflare Workers' WebCrypto implementation hard-caps PBKDF2 at 100,000
+// iterations (crypto.subtle.deriveBits throws NotSupportedError above that,
+// discovered live: OWASP's current general recommendation of 210,000
+// doesn't fit this platform) — 100,000 is the max this runtime allows.
+const PBKDF2_ITERATIONS = 100_000;
 const HASH_ALGO = 'SHA-256';
 const COOKIE_NAME = 'kh_session';
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60; // 30 days, matches the old express-session cookie

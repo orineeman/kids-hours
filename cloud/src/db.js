@@ -86,6 +86,13 @@ export async function getReport(db, { sinceMs } = {}) {
   return results;
 }
 
+// Called daily by the scheduled() handler in index.js.
+export async function deleteOldDnsLogs(db, days = 30) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const result = await db.prepare('DELETE FROM dns_log WHERE ts < ?').bind(cutoff).run();
+  return result.meta.changes;
+}
+
 export async function getRecentLog(db, limit = 200) {
   const { results } = await db
     .prepare('SELECT * FROM dns_log ORDER BY ts DESC LIMIT ?')

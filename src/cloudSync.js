@@ -14,6 +14,7 @@ import {
   getLogPushWatermark,
   setLogPushWatermark,
   getDnsLogSince,
+  pruneDnsLogUpTo,
 } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -61,7 +62,11 @@ async function pushLogs(apiBase, token) {
     body: JSON.stringify({ entries }),
   });
   if (!res.ok) throw new Error(`log push failed: HTTP ${res.status}`);
-  setLogPushWatermark(rows[rows.length - 1].id);
+  const lastId = rows[rows.length - 1].id;
+  setLogPushWatermark(lastId);
+  // הענן הוא מקור האמת ההיסטורי מכאן (עם ניקוי 30 יום משלו) — אין סיבה
+  // לשמור עותק כפול לצמיתות על דיסק המחשב.
+  pruneDnsLogUpTo(lastId);
 }
 
 export function startCloudSync(apiBase) {

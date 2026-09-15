@@ -1,21 +1,24 @@
 name = "kids-hours-api"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
+workers_dev = true
+
+routes = [
+  { pattern = "kids.musagim-bamaharal.org", custom_domain = true }
+]
 
 # Created once via: npx wrangler d1 create kids-hours
 # — paste the database_id it prints below.
 [[d1_databases]]
 binding = "DB"
 database_name = "kids-hours"
-database_id = "REPLACE_ME_AFTER_D1_CREATE"
+database_id = "9b7466d5-a42c-4f05-a0b7-b992eb86bc54"
 
 [assets]
 directory = "./dashboard"
 binding = "ASSETS"
 
-# Once the Worker is deployed and working at its workers.dev URL, point the
-# existing kids.musagim-bamaharal.org record at it (Cloudflare dashboard ->
-# your domain -> Workers Routes, or uncomment this and redeploy):
-# routes = [
-#   { pattern = "kids.musagim-bamaharal.org/*", custom_domain = true }
-# ]
+# Daily cleanup of dns_log rows older than 30 days — see the scheduled()
+# handler in src/index.js.
+[triggers]
+crons = ["0 3 * * *"]

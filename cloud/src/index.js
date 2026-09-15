@@ -183,4 +183,11 @@ export default {
       return json({ error: 'internal_error' }, 500);
     }
   },
+
+  // Daily cron (see [triggers] in wrangler.toml) — dns_log has no other
+  // retention, so this is what keeps it from growing forever.
+  async scheduled(event, env) {
+    const deleted = await db.deleteOldDnsLogs(env.DB, 30);
+    console.log(`scheduled cleanup: deleted ${deleted} dns_log row(s) older than 30 days`);
+  },
 };

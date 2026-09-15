@@ -40,7 +40,10 @@ export function startDnsServer(port = 53) {
       const site = getSiteByDomain(name);
       const blocked = !!site && !isGrantActive(site.id);
 
-      logDns(name, blocked, rinfo?.address);
+      // רק דומיינים ששייכים לאתר מנוהל — לא כל שאילתת DNS שהמחשב שולח
+      // (רוב מהן רעש: מודעות, CDN-ים, טלמטריה של כל אתר אחר). מספיק לדעת
+      // באילו אתרים מנוהלים הילדים באמת נמצאים.
+      if (site) logDns(name, blocked, rinfo?.address);
 
       if (blocked) {
         response.header.rcode = Packet.RCODE.NXDOMAIN;

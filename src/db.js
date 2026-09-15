@@ -132,6 +132,13 @@ export function setLogPushWatermark(id) {
   db.prepare('UPDATE sync_state SET log_push_watermark = ? WHERE id = 1').run(id);
 }
 
+// נקרא אחרי דחיפה מוצלחת לענן — שם הוא מקור האמת ההיסטורי (עם ניקוי 30
+// יום משלו). אין סיבה לשמור פה עותק כפול לצמיתות; משאירים רק את מה
+// שהצטבר מאז הדחיפה האחרונה, לשימוש עמוד המצב המקומי.
+export function pruneDnsLogUpTo(id) {
+  db.prepare('DELETE FROM dns_log WHERE id <= ?').run(id);
+}
+
 // --- dns_log / known_ips: fully local, unrelated to the cloud move ---
 
 export function logDns(domain, blocked, clientIp) {
