@@ -96,6 +96,20 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 
 function renderSitesTime() {
   const el = document.getElementById('sitesTime');
+
+  // A poll (60s interval, visibilitychange, or a grant/revoke on another
+  // row) can trigger a re-render while a parent is mid-typing into a grant
+  // form's minutes input. Capture in-progress values (and focus) so the
+  // rebuild below doesn't wipe them back to the value="15" default.
+  const prevValues = {};
+  let focusedId = null;
+  el.querySelectorAll('.grant-form input').forEach((input) => {
+    const row = input.closest('.site-row');
+    if (!row) return;
+    prevValues[row.dataset.id] = input.value;
+    if (document.activeElement === input) focusedId = row.dataset.id;
+  });
+
   el.innerHTML = sites.map((site) => `
     <div class="site-row" data-id="${site.id}">
       <span class="site-name">${site.name}<br><span class="muted">${site.domains.join(', ')}</span></span>
@@ -113,6 +127,17 @@ function renderSitesTime() {
       `}
     </div>
   `).join('') || '<p class="muted">אין עדיין אתרים ברשימה.</p>';
+
+  el.querySelectorAll('.grant-form input').forEach((input) => {
+    const row = input.closest('.site-row');
+    if (!row) return;
+    const prev = prevValues[row.dataset.id];
+    if (prev !== undefined) input.value = prev;
+    if (row.dataset.id === focusedId) {
+      input.focus();
+      input.select();
+    }
+  });
 }
 
 function renderSitesDomains() {
