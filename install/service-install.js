@@ -21,6 +21,15 @@ const svc = new Service({
   env: [
     { name: 'DNS_PORT', value: '53' },
     { name: 'STATUS_PORT', value: '8080' },
+    // Many antivirus/parental-control suites (Kaspersky, ESET, Avast/AVG,
+    // Bitdefender, ...) do HTTPS inspection: they re-sign every TLS
+    // connection with their own locally-installed root CA. Windows trusts
+    // that CA (it's in the system store), so PowerShell/browsers work fine,
+    // but Node's fetch() only trusts its own bundled CA bundle and fails
+    // cloudSync's requests with SELF_SIGNED_CERT_IN_CHAIN. Discovered live
+    // on a real install. Safe to also trust the system store here since
+    // Windows already does.
+    { name: 'NODE_OPTIONS', value: '--use-system-ca' },
   ],
 });
 

@@ -222,7 +222,8 @@ window.editDomains = async (id) => {
   if (input === null) return;
   const domains = input.split(',').map((d) => d.trim()).filter(Boolean);
   if (domains.length === 0) return alert('צריך לפחות דומיין אחד');
-  await api(`/api/sites/${id}`, { method: 'PATCH', body: JSON.stringify({ domains }) });
+  const result = await api(`/api/sites/${id}`, { method: 'PATCH', body: JSON.stringify({ domains }) });
+  if (result?.error) return alert('דומיין לא תקין — יש להזין שם מארח בלבד, למשל github.com (לא כתובת מלאה כמו https://github.com/).');
   await loadSites();
 };
 
@@ -239,7 +240,7 @@ document.getElementById('addSiteBtn').addEventListener('click', async () => {
   if (!name || domains.length === 0) return alert('יש למלא שם ולפחות דומיין אחד');
   const result = await api('/api/sites', { method: 'POST', body: JSON.stringify({ name, domains }) });
   if (result?.error === 'duplicate_name') return alert('כבר קיים אתר בשם הזה.');
-  if (result?.error) return alert('שגיאה בהוספת האתר.');
+  if (result?.error) return alert('דומיין לא תקין — יש להזין שם מארח בלבד, למשל github.com (לא כתובת מלאה כמו https://github.com/).');
   document.getElementById('newName').value = '';
   document.getElementById('newDomains').value = '';
   await loadSites();

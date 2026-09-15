@@ -15,6 +15,43 @@ function json(data, status = 200, extraHeaders = {}) {
   });
 }
 
+// A parent pasting a full URL (e.g. from the browser's address bar) instead
+// of a bare hostname would otherwise silently create a site that can never
+// match a DNS query name — dnsServer.js on the kid's PC only ever compares
+// against plain hostnames. Strip scheme/path/port so "https://github.com/"
+// becomes "github.com", and reject anything that still isn't a hostname.
+const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+function normalizeDomain(raw) {
+  let d = String(raw).trim().toLowerCase();
+  if (!d) return null;
+  if (d.includes('://')) {
+    try {
+      d = new URL(d).hostname;
+    } catch {
+      return null;
+    }
+  } else {
+    d = d.split('/')[0];
+  }
+  d = d.replace(/:\d+$/, '').replace(/\.$/, '');
+  return HOSTNAME_RE.test(d) ? d : null;
+}
+
+// Returns null (instead of a possibly-shorter array) if any entry fails to
+// normalize, so the caller can 400 rather than silently dropping a domain
+// the parent thought they added.
+function normalizeDomains(rawList) {
+  if (!Array.isArray(rawList)) return null;
+  const out = [];
+  for (const raw of rawList) {
+    const d = normalizeDomain(raw);
+    if (!d) return null;
+    out.push(d);
+  }
+  return out;
+}
+
 function siteToJson(site, grant) {
   return {
     id: site.id,
@@ -127,10 +164,8 @@ export default {
         if (pathname === '/api/sites' && method === 'POST') {
           const body = await request.json().catch(() => null);
           const name = String(body?.name || '').trim();
-          const domains = Array.isArray(body?.domains)
-            ? body.domains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
-            : [];
-          if (!name || domains.length === 0) return json({ error: 'invalid_input' }, 400);
+          const domains = normalizeDomains(body?.domains);
+          if (!name || !domains || domains.length === 0) return json({ error: 'invalid_input' }, 400);
           if (await db.getSiteByName(env.DB, name)) return json({ error: 'duplicate_name' }, 400);
           const site = await db.createSite(env.DB, name, domains);
           return json(siteToJson(site, null));
@@ -153,10 +188,8 @@ export default {
           const site = await db.getSiteById(env.DB, Number(siteIdMatch[1]));
           if (!site) return json({ error: 'not_found' }, 404);
           const body = await request.json().catch(() => null);
-          const domains = Array.isArray(body?.domains)
-            ? body.domains.map((d) => String(d).trim().toLowerCase()).filter(Boolean)
-            : [];
-          if (domains.length === 0) return json({ error: 'invalid_input' }, 400);
+          const domains = normalizeDomains(body?.domains);
+          if (!domains || domains.length === 0) return json({ error: 'invalid_input' }, 400);
           const updated = await db.updateSiteDomains(env.DB, site.id, domains);
           return json(siteToJson(updated, await db.getActiveGrant(env.DB, updated.id)));
         }

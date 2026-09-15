@@ -48,6 +48,72 @@ async function addRule(site, ips) {
   ]);
 }
 
+const TCP_STATE_DELETE_TCB = 12;
+
+function isIPv4(ip) {
+  return (
+    /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip) &&
+    ip.split('.').every((octet) => Number(octet) <= 255)
+  );
+}
+
+// A new Windows Firewall block rule only stops *new* outbound connections —
+// WFP evaluates rules when a connection is established and then lets an
+// already-open TCP session keep flowing regardless of rules added later. A
+// browser tab (or WhatsApp Web's long-lived WebSocket) that connected during
+// the grant window would otherwise keep working for however long it happens
+// to stay open past expiry — anywhere from seconds to many minutes — instead
+// of being cut the moment access is revoked. SetTcpEntry (iphlpapi.dll) is
+// the actual Windows mechanism to force-close a specific established TCP
+// connection from outside the process that owns it; this builds one
+// MIB_TCPROW per currently-established connection to a newly-blocked IP and
+// asks the OS to delete it (MIB_TCP_STATE_DELETE_TCB), same mechanism tools
+// like TCPView use to end a connection. Only covers TCP — a QUIC/HTTP3
+// session over UDP has no equivalent "kill" call, though new UDP packets to
+// the IP are still stopped by the netsh rule itself.
+function killExistingConnectionsScript(ips) {
+  const targets = ips.filter(isIPv4).map((ip) => `'${ip}'`).join(',');
+  return `
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -Namespace KidsNetControl -Name TcpKiller -MemberDefinition '
+[System.Runtime.InteropServices.DllImport("iphlpapi.dll", SetLastError=true)]
+public static extern int SetTcpEntry(byte[] tcpRow);
+'
+$targets = @(${targets})
+if ($targets.Count -eq 0) { exit 0 }
+Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+  Where-Object { $targets -contains $_.RemoteAddress } |
+  ForEach-Object {
+    $row = New-Object byte[] 20
+    [BitConverter]::GetBytes([int]${TCP_STATE_DELETE_TCB}).CopyTo($row, 0)
+    ([System.Net.IPAddress]$_.LocalAddress).GetAddressBytes().CopyTo($row, 4)
+    $lp = [BitConverter]::GetBytes([UInt16]$_.LocalPort)
+    $row[8] = $lp[1]; $row[9] = $lp[0]
+    ([System.Net.IPAddress]$_.RemoteAddress).GetAddressBytes().CopyTo($row, 12)
+    $rp = [BitConverter]::GetBytes([UInt16]$_.RemotePort)
+    $row[16] = $rp[1]; $row[17] = $rp[0]
+    [KidsNetControl.TcpKiller]::SetTcpEntry($row) | Out-Null
+  }
+`;
+}
+
+function killExistingConnections(ips) {
+  if (!isWindows) {
+    console.log(`[firewall:dry-run] would force-close existing connections to ${ips.join(',')}`);
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', killExistingConnectionsScript(ips)],
+      (err, _stdout, stderr) => {
+        if (err) console.error('killExistingConnections error:', stderr?.trim() || err.message);
+        resolve();
+      },
+    );
+  });
+}
+
 // Signature of the last state actually applied to netsh, per site.id — lets
 // syncSiteFirewall skip the delete+recreate when nothing changed, instead of
 // redoing it on every scheduler tick. Redoing it unconditionally briefly
@@ -65,8 +131,10 @@ function desiredSignature(site, ips) {
 /**
  * Recomputes the firewall state for one site: if it has an active grant,
  * make sure no block rule exists (open); otherwise block every IP address
- * that has ever been observed for its domains (closes already-open sessions
- * and blocks users who type the IP directly instead of the hostname).
+ * that has ever been observed for its domains, and force-close any
+ * connection to one of those IPs that's already open (see
+ * killExistingConnections) — blocks users who type the IP directly instead
+ * of the hostname either way.
  */
 export async function syncSiteFirewall(site) {
   const ips = getKnownIps(site.id);
@@ -78,6 +146,7 @@ export async function syncSiteFirewall(site) {
   await deleteRule(site);
   if (signature.startsWith('block:')) {
     await addRule(site, ips);
+    await killExistingConnections(ips);
   }
   lastApplied.set(site.id, signature);
 }
