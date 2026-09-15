@@ -131,6 +131,15 @@ function renderSites() {
   renderSitesDomains();
 }
 
+function updateCountdowns() {
+  document.querySelectorAll('#sitesTime .site-row').forEach((row) => {
+    const site = sites.find((s) => s.id === Number(row.dataset.id));
+    if (!site || site.blocked) return;
+    const statusEl = row.querySelector('.status');
+    if (statusEl) statusEl.textContent = 'פתוח · ' + fmtRemaining(site.expiresAt);
+  });
+}
+
 async function loadSites() {
   sites = await api('/api/sites');
   renderSites();
@@ -216,7 +225,7 @@ document.addEventListener('visibilitychange', () => {
   if (s.needsSetup) return location.href = '/setup.html';
   if (!s.loggedIn) return location.href = '/login.html';
   await loadSites();
-  setInterval(renderSites, 1000);   // live countdown
+  setInterval(updateCountdowns, 1000);   // live countdown (updates text only — full re-render would wipe in-progress form input)
   setInterval(() => { if (!document.hidden) loadSites(); }, 60000);   // pick up expiry / external changes (cosmetic only — actual blocking is enforced independently on the kid's PC)
   setInterval(() => { if (activeTab === 'history' && !document.hidden) loadReport(); }, 30000);
   resetIdleTimer();
