@@ -44,8 +44,14 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     const minutes = Math.ceil((body.retryAfterSeconds || 0) / 60) || 1;
     errEl.textContent = `יותר מדי ניסיונות כושלים — נסו שוב בעוד כ-${minutes} דקות.`;
     errEl.hidden = false;
-  } else {
+  } else if (res.status === 401) {
     errEl.textContent = 'סיסמה שגויה';
+    errEl.hidden = false;
+  } else {
+    // Anything else (500, network hiccup, ...) is not "wrong password" —
+    // showing it as one is misleading (looks like the account was
+    // reset/deleted) when it's usually a server-side problem instead.
+    errEl.textContent = 'שגיאת שרת — נסו שוב בעוד רגע. אם זה נמשך, בדקו את יומן ה-Worker.';
     errEl.hidden = false;
   }
 });
