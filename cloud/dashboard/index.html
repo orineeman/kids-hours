@@ -207,14 +207,18 @@ function resetIdleTimer() {
   document.addEventListener(evt, resetIdleTimer, { passive: true });
 });
 
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) loadSites();
+});
+
 (async () => {
   const s = await (await fetch('/api/session')).json();
   if (s.needsSetup) return location.href = '/setup.html';
   if (!s.loggedIn) return location.href = '/login.html';
   await loadSites();
   setInterval(renderSites, 1000);   // live countdown
-  setInterval(loadSites, 5000);     // pick up expiry / external changes
-  setInterval(() => { if (activeTab === 'history') loadReport(); }, 30000);
+  setInterval(() => { if (!document.hidden) loadSites(); }, 60000);   // pick up expiry / external changes (cosmetic only — actual blocking is enforced independently on the kid's PC)
+  setInterval(() => { if (activeTab === 'history' && !document.hidden) loadReport(); }, 30000);
   resetIdleTimer();
 })();
 </script>
