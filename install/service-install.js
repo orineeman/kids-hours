@@ -20,7 +20,7 @@ const svc = new Service({
   script: path.join(__dirname, '..', 'src', 'index.js'),
   env: [
     { name: 'DNS_PORT', value: '53' },
-    { name: 'WEB_PORT', value: '8080' },
+    { name: 'STATUS_PORT', value: '8080' },
   ],
 });
 

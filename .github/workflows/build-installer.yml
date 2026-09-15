@@ -6,7 +6,6 @@ on:
     paths:
       - 'installer/**'
       - 'src/**'
-      - 'public/**'
       - 'install/**'
       - 'package.json'
       - 'package-lock.json'
@@ -65,12 +64,6 @@ jobs:
           # tested prebuilt binary is used instead (verified none of our
           # dependencies need an install/postinstall script to function).
           npm install --omit=dev --no-fund --no-audit --ignore-scripts
-
-      - name: Download cloudflared (bundled into the installer)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile installer\runtime\cloudflared.exe
 
       - name: Compile installer
         shell: pwsh

@@ -2,18 +2,18 @@
 ; מקומפל אוטומטית ע"י GitHub Actions (.github/workflows/build-installer.yml)
 ; על ריצת Windows, כי אין כאן מחשב Windows לקמפל עליו מקומית.
 ;
-; ה-workflow מוריד Node.js (runtime\), מריץ npm install (node_modules\),
-; ומוריד cloudflared.exe (runtime\) *לפני* הקומפילציה — כל זה נארז בתוך
-; ה-.exe. כך שההתקנה בפועל על מחשב הילדים לא נוגעת באינטרנט בכלל (חוץ
-; משלב Cloudflare Tunnel האופציונלי, שמטבעו דורש התחברות מקוונת) ולא
-; תלויה ב-winget/npm registry/אנטי-וירוס של אותו מחשב.
+; ה-workflow מוריד Node.js (runtime\) ומריץ npm install (node_modules\)
+; *לפני* הקומפילציה — כל זה נארז בתוך ה-.exe. כך שההתקנה בפועל על מחשב
+; הילדים לא נוגעת באינטרנט בכלל, ולא תלויה ב-winget/npm registry/
+; אנטי-וירוס של אותו מחשב. גישה מרחוק ללוח הבקרה עוברת דרך Cloudflare
+; Worker (ראה cloud/README.md) — אין יותר תלות ב-cloudflared/Tunnel כאן.
 ;
 ; מריץ, כ-Administrator: מעתיק את הקבצים, ואז מריץ installer\postinstall.ps1
-; שמבצע את כל שאר ההתקנה (שירות, הקשחה, Cloudflare, הורדת הרשאות מחשבון
-; הילד) — ראה postinstall.ps1 לפרטים.
+; שמבצע את כל שאר ההתקנה (שירות, הקשחה, הורדת הרשאות מחשבון הילד) — ראה
+; postinstall.ps1 לפרטים.
 
 #define MyAppName "בקרת אינטרנט לילדים"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "Ori Neeman"
 #define MyServiceName "KidsNetControl"
 
@@ -37,7 +37,6 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
 Source: "..\src\*"; DestDir: "{app}\src"; Flags: recursesubdirs createallsubdirs ignoreversion
-Source: "..\public\*"; DestDir: "{app}\public"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\install\*"; DestDir: "{app}\install"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\node_modules\*"; DestDir: "{app}\node_modules"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "runtime\*"; DestDir: "{app}\runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -49,14 +48,14 @@ Source: "uninstall.ps1"; DestDir: "{app}\installer"; Flags: ignoreversion
 Source: "dashboard.url"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\לוח הבקרה"; Filename: "{app}\dashboard.url"
+Name: "{group}\מצב מקומי"; Filename: "{app}\dashboard.url"
 Name: "{group}\הסרת ההתקנה"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\postinstall.ps1"" -ChildUsername ""{code:GetChildUsername}"" {code:GetCloudflareFlag}"; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\postinstall.ps1"" -ChildUsername ""{code:GetChildUsername}"" -DeviceToken ""{code:GetDeviceToken}"""; \
     WorkingDir: "{app}"; \
-    StatusMsg: "מריץ את שלבי ההתקנה (זה יכול לקחת כמה דקות — כולל התחברות ל-Cloudflare אם נבחר)..."; \
+    StatusMsg: "מריץ את שלבי ההתקנה (זה יכול לקחת כמה דקות)..."; \
     Flags: waituntilterminated
 
 [UninstallRun]
@@ -68,7 +67,7 @@ Filename: "powershell.exe"; \
 [Code]
 var
   ChildAccountPage: TInputQueryWizardPage;
-  CloudflarePage: TInputOptionWizardPage;
+  DeviceTokenPage: TInputQueryWizardPage;
 
 procedure InitializeWizard;
 begin
@@ -76,17 +75,18 @@ begin
     'חשבון הילד', 'איזה חשבון משתמש בוינדוס שייך לילד?',
     'הזינו את שם המשתמש המדויק של חשבון הילד (בדיוק כפי שמופיע בהגדרות Windows). ' +
     'ההתקנה תוריד ממנו הרשאות Administrator בסוף התהליך, כדי שההגנות לא יהיו ' +
-    'ניתנות לעקיפה. חשבון ההורה (שממנו מריצים את ההתקנה) יישאר Administrator.');
-  ChildAccountPage.Add('שם משתמש של חשבון הילד:', False);
+    'ניתנות לעקיפה. חשבון ההורה (שממנו מריצים את ההתקנה) יישאר Administrator. ' +
+    'ניתן להשאיר ריק אם אין חשבון הורה נפרד במחשב הזה — במקרה כזה שלב זה ידלג ' +
+    'באופן בטוח.');
+  ChildAccountPage.Add('שם משתמש של חשבון הילד (אפשר להשאיר ריק):', False);
 
-  CloudflarePage := CreateInputOptionPage(ChildAccountPage.ID,
-    'גישה מרחוק ללוח הבקרה', 'הגדרת Cloudflare Tunnel (אופציונלי)',
-    'זה מאפשר להורה להיכנס ללוח הבקרה מכל מקום, לא רק מהבית. התהליך יפתח ' +
-    'דפדפן וידרוש התחברות חד-פעמית לחשבון Cloudflare — יש להשלים אותה כשהיא ' +
-    'נפתחת. אם לא בטוחים, אפשר לדלג ולהגדיר בהמשך ידנית (ראה README).',
-    False, False);
-  CloudflarePage.Add('הגדר עכשיו גישה מרחוק (Cloudflare Tunnel)');
-  CloudflarePage.Values[0] := True;
+  DeviceTokenPage := CreateInputQueryPage(ChildAccountPage.ID,
+    'חיבור לענן', 'הדבקת טוקן המכשיר',
+    'המחשב הזה צריך טוקן ייחודי כדי להסתנכרן עם לוח הבקרה בענן (הענקת/ביטול ' +
+    'גישה, רשימת אתרים). הטוקן נוצר פעם אחת ע"י מי שהקים את חלק הענן (ראה ' +
+    'cloud/README.md, ' + '"npm run device:create"), ומודפס פעם אחת בלבד — ' +
+    'הדביקו אותו כאן.');
+  DeviceTokenPage.Add('Device Token:', False);
 end;
 
 function GetChildUsername(Param: string): string;
@@ -94,22 +94,20 @@ begin
   Result := ChildAccountPage.Values[0];
 end;
 
-function GetCloudflareFlag(Param: string): string;
+function GetDeviceToken(Param: string): string;
 begin
-  if CloudflarePage.Values[0] then
-    Result := '-SetupCloudflare'
-  else
-    Result := '';
+  Result := DeviceTokenPage.Values[0];
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if CurPageID = ChildAccountPage.ID then
+  if CurPageID = DeviceTokenPage.ID then
   begin
-    if Trim(ChildAccountPage.Values[0]) = '' then
+    if Trim(DeviceTokenPage.Values[0]) = '' then
     begin
-      MsgBox('יש להזין שם משתמש של חשבון הילד לפני שממשיכים.', mbError, MB_OK);
+      MsgBox('יש להדביק את טוקן המכשיר לפני שממשיכים — בלעדיו המחשב לא יכול ' +
+        'להסתנכרן עם לוח הבקרה בענן.', mbError, MB_OK);
       Result := False;
     end;
   end;

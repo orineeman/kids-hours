@@ -1,14 +1,15 @@
 import { startDnsServer } from './dnsServer.js';
-import { createWebServer } from './webServer.js';
 import { startScheduler } from './scheduler.js';
+import { startCloudSync } from './cloudSync.js';
+import { startStatusServer } from './status.js';
 
 const DNS_PORT = Number(process.env.DNS_PORT) || 53;
-const WEB_PORT = Number(process.env.WEB_PORT) || 8080;
+const STATUS_PORT = Number(process.env.STATUS_PORT) || 8080;
+// אותו דומיין ש-Cloudflare Tunnel שירת בעבר — עכשיו מצביע ישירות ל-Worker
+// (ראו cloud/README.md), אין תלות ב-cloudflared/Tunnel יותר.
+const CLOUD_API_BASE = process.env.CLOUD_API_BASE || 'https://kids.musagim-bamaharal.org';
 
 startDnsServer(DNS_PORT);
 startScheduler();
-
-const app = createWebServer();
-app.listen(WEB_PORT, () => {
-  console.log(`Dashboard listening on http://127.0.0.1:${WEB_PORT}`);
-});
+startCloudSync(CLOUD_API_BASE);
+startStatusServer(STATUS_PORT);

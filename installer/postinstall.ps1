@@ -1,22 +1,17 @@
 ﻿# מורץ אוטומטית ע"י המתקין (setup.exe), כ-Administrator, בסוף ההתקנה.
-# מבצע את כל השלבים שבעבר בוצעו ידנית לפי WINDOWS_DEPLOY.md: שירות
-# Windows, הקשחה, Cloudflare Tunnel (אופציונלי), והורדת הרשאות מחשבון
-# הילד. Node.js ו-cloudflared כבר ארוזים בתוך ההתקנה עצמה (runtime\) —
-# אין כאן שום תלות ברשת/winget/npm registry של המחשב הזה, מלבד שלב
-# Cloudflare עצמו שמטבעו דורש התחברות מקוונת. כל שלב עטוף בטיפול שגיאות
-# משלו כדי ששגיאה אחת לא תעצור את כל השאר — בסוף מודפס סיכום של מה שכן
-# ומה שלא הושלם.
+# מבצע: שירות Windows, הקשחה, כתיבת טוקן המכשיר לסנכרון עם הענן, והורדת
+# הרשאות מחשבון הילד. Node.js כבר ארוז בתוך ההתקנה עצמה (runtime\) — אין
+# כאן שום תלות ברשת/winget/npm registry של המחשב הזה בכלל; הסנכרון בפועל
+# עם הענן (Cloudflare Worker) קורה מאוחר יותר, כשהשירות רץ, לא כאן. כל שלב
+# עטוף בטיפול שגיאות משלו כדי ששגיאה אחת לא תעצור את כל השאר — בסוף מודפס
+# סיכום של מה שכן ומה שלא הושלם.
 
 [CmdletBinding()]
 param(
+    [string]$ChildUsername = '',
+
     [Parameter(Mandatory = $true)]
-    [string]$ChildUsername,
-
-    [switch]$SetupCloudflare,
-
-    [string]$CloudflareDomain = "musagim-bamaharal.org",
-    [string]$CloudflareSubdomain = "kids",
-    [string]$TunnelName = "kids-control"
+    [string]$DeviceToken
 )
 
 $ErrorActionPreference = 'Stop'
@@ -25,7 +20,6 @@ $AppDir = Split-Path -Parent $InstallerDir
 $LogFile = Join-Path $AppDir 'install.log'
 $RuntimeDir = Join-Path $AppDir 'runtime'
 $NodeExe = Join-Path $RuntimeDir 'node.exe'
-$CloudflaredExe = Join-Path $RuntimeDir 'cloudflared.exe'
 $script:Failures = @()
 
 function Write-Log {
@@ -52,12 +46,11 @@ function Invoke-Step {
     }
 }
 
-# מריץ תוכנית חיצונית ורושם את הפלט שלה ליומן. חייב לעטוף כל קריאה
-# כזו: תוכניות חיצוניות רבות (cloudflared למשל) כותבות שורות מידע
-# רגילות ל-stderr, ו-PowerShell עם $ErrorActionPreference='Stop' הופך
-# כל שורת stderr שעוברת דרך 2>&1 לשגיאה עוצרת — גם כשהתוכנית בעצם
-# הצליחה. לכן מבטלים את ErrorActionPreference זמנית סביב הקריאה, ובודקים
-# הצלחה/כישלון אמיתיים רק לפי קוד היציאה בפועל.
+# מריץ תוכנית חיצונית ורושם את הפלט שלה ליומן. חייב לעטוף כל קריאה כזו:
+# תוכניות חיצוניות רבות כותבות שורות מידע רגילות ל-stderr, ו-PowerShell עם
+# $ErrorActionPreference='Stop' הופך כל שורת stderr שעוברת דרך 2>&1 לשגיאה
+# עוצרת — גם כשהתוכנית בעצם הצליחה. לכן מבטלים את ErrorActionPreference
+# זמנית סביב הקריאה, ובודקים הצלחה/כישלון אמיתיים רק לפי קוד היציאה בפועל.
 function Invoke-NativeLogged {
     param(
         [Parameter(Mandatory = $true)][string]$Prefix,
@@ -88,9 +81,9 @@ if (-not (Test-Path $NodeExe)) {
     Write-Log "לא נמצא $NodeExe — קובץ ההתקנה כנראה פגום או לא הושלם. הורידו מחדש את המתקין והריצו שוב." 'ERROR'
     exit 1
 }
-# runtime\ מכיל node.exe + npm.cmd + npx.cmd + cloudflared.exe — שמים אותו
-# ראשון ב-PATH כדי שקריאות "node"/"npm"/"cloudflared" ישתמשו בגרסה הארוזה,
-# לא בגרסה כלשהי שמותקנת (או לא) על המחשב הזה.
+# runtime\ מכיל node.exe + npm.cmd + npx.cmd — שמים אותו ראשון ב-PATH כדי
+# שקריאות "node"/"npm" ישתמשו בגרסה הארוזה, לא בגרסה כלשהי שמותקנת (או לא)
+# על המחשב הזה.
 $env:Path = "$RuntimeDir;$env:Path"
 Write-Log "Node.js ארוז בהתקנה: $(& $NodeExe -v)"
 
@@ -122,108 +115,39 @@ Invoke-Step -Name 'הקשחה נגד עקיפה (DNS/Chrome/Firewall/הרשאו�
     )
 }
 
-# --- שלב 3: Cloudflare Tunnel (אופציונלי) ---
-if ($SetupCloudflare) {
-    Invoke-Step -Name 'הגדרת גישה מרחוק (Cloudflare Tunnel)' -Critical $false -Action {
-        if (-not (Test-Path $CloudflaredExe)) {
-            throw "cloudflared.exe לא נמצא בתיקיית ההתקנה ($CloudflaredExe) — קובץ ההתקנה כנראה פגום."
-        }
-
-        $cfDir = Join-Path $env:USERPROFILE '.cloudflared'
-        $certFile = Join-Path $cfDir 'cert.pem'
-        if (-not (Test-Path $certFile)) {
-            Write-Log "פותח דפדפן להתחברות לחשבון Cloudflare — יש להשלים את ההתחברות שם עכשיו (חד-פעמי)."
-            Start-Process -FilePath $CloudflaredExe -ArgumentList 'tunnel login' -Wait -NoNewWindow
-        }
-        if (-not (Test-Path $certFile)) {
-            throw "ההתחברות ל-Cloudflare לא הושלמה (לא נמצא cert.pem). אפשר להריץ שוב את ההתקנה אחרי התחברות ידנית עם: cloudflared tunnel login"
-        }
-
-        $existingId = $null
-        $prevEAP = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
-        $tunnelListOutput = & $CloudflaredExe tunnel list 2>&1
-        $ErrorActionPreference = $prevEAP
-        foreach ($line in $tunnelListOutput) {
-            if ("$line" -match "^\s*([0-9a-fA-F-]{36})\s+$([regex]::Escape($TunnelName))\s") {
-                $existingId = $matches[1]
-            }
-        }
-        if (-not $existingId) {
-            Write-Log "יוצר טאנל חדש בשם '$TunnelName'..."
-            Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('tunnel', 'create', $TunnelName)
-        } else {
-            Write-Log "טאנל '$TunnelName' כבר קיים (ID $existingId) — משתמש בו מחדש."
-        }
-
-        $credFile = Get-ChildItem -Path $cfDir -Filter '*.json' -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if (-not $credFile) {
-            throw "לא נמצא קובץ credentials של הטאנל בתיקייה $cfDir"
-        }
-
-        $fullHostname = "$CloudflareSubdomain.$CloudflareDomain"
-        Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('tunnel', 'route', 'dns', $TunnelName, $fullHostname)
-
-        # שירות cloudflared (כמו כל שירות Windows שהותקן בלי לציין אחרת) רץ
-        # תחת חשבון SYSTEM, שיש לו פרופיל נפרד משל המשתמש האינטראקטיבי
-        # (Administrator) שממנו בוצעו tunnel login/create למעלה. בלי להעתיק
-        # את קבצי ה-cert/credentials/config גם לפרופיל של SYSTEM, השירות לא
-        # מוצא אותם בכלל ולא מתחבר בפועל — כלפי חוץ זה נראה כ"Error 1033"
-        # (Cloudflare Tunnel error) כי אין שום חיבור פעיל מהמחשב הזה.
-        $systemCfDir = Join-Path $env:SystemRoot 'System32\config\systemprofile\.cloudflared'
-        New-Item -ItemType Directory -Force -Path $systemCfDir | Out-Null
-        $destCredFile = Join-Path $systemCfDir $credFile.Name
-
-        $configYml = @"
-tunnel: $TunnelName
-credentials-file: $destCredFile
-ingress:
-  - hostname: $fullHostname
-    service: http://localhost:8080
-  - service: http_status:404
-"@
-        Set-Content -Path (Join-Path $cfDir 'config.yml') -Value $configYml -Encoding UTF8
-        Write-Log "config.yml נכתב עבור hostname $fullHostname"
-
-        Copy-Item -Path $certFile -Destination $systemCfDir -Force
-        Copy-Item -Path $credFile.FullName -Destination $systemCfDir -Force
-        Copy-Item -Path (Join-Path $cfDir 'config.yml') -Destination $systemCfDir -Force
-        Write-Log "קובצי Cloudflare הועתקו גם לפרופיל SYSTEM ($systemCfDir)."
-
-        $cfSvc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
-        if ($cfSvc) {
-            Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('service', 'uninstall')
-            Start-Sleep -Seconds 2
-        }
-        Invoke-NativeLogged -Prefix 'cloudflared' -FilePath $CloudflaredExe -Arguments @('service', 'install')
-        Start-Sleep -Seconds 3
-        $cfSvc = Get-Service -Name 'cloudflared' -ErrorAction SilentlyContinue
-        if (-not $cfSvc -or $cfSvc.Status -ne 'Running') {
-            throw "שירות cloudflared לא במצב Running אחרי ההתקנה."
-        }
-        Write-Log "לוח הבקרה יהיה זמין מרחוק בכתובת https://$fullHostname (עשוי לקחת כמה דקות להפצת DNS)."
-    }
+# --- שלב 3: טוקן מכשיר לסנכרון עם הענן ---
+Invoke-Step -Name 'כתיבת טוקן מכשיר' -Critical $true -Action {
+    $tokenPath = Join-Path $AppDir 'data\device-token'
+    New-Item -ItemType Directory -Force -Path (Join-Path $AppDir 'data') | Out-Null
+    Set-Content -Path $tokenPath -Value $DeviceToken.Trim() -Encoding ASCII -NoNewline
+    Write-Log "טוקן המכשיר נכתב ל-$tokenPath. השירות יתחיל להסתנכרן עם הענן בהפעלה הבאה שלו."
+    # אם השירות כבר רץ (למשל עדכון), מפעילים אותו מחדש כדי שיקרא את הטוקן
+    # החדש מיידית, בלי לחכות לאיתחול המחשב.
+    Restart-Service -Name 'KidsNetControl' -ErrorAction SilentlyContinue
 }
 
-# --- שלב 4: הורדת הרשאות מחשבון הילד ---
-Invoke-Step -Name 'הורדת הרשאות Administrator מחשבון הילד' -Critical $false -Action {
-    $childUser = Get-LocalUser -Name $ChildUsername -ErrorAction SilentlyContinue
-    if (-not $childUser) {
-        throw "חשבון בשם '$ChildUsername' לא נמצא במחשב הזה. בדקו את שם החשבון המדויק (Get-LocalUser) והורידו הרשאות ידנית דרך הגדרות Windows."
+# --- שלב 4: הורדת הרשאות מחשבון הילד (אופציונלי) ---
+if ([string]::IsNullOrWhiteSpace($ChildUsername)) {
+    Write-Log "לא הוזן שם חשבון ילד — מדלגים על הורדת הרשאות Administrator (התבקש במפורש)."
+} else {
+    Invoke-Step -Name 'הורדת הרשאות Administrator מחשבון הילד' -Critical $false -Action {
+        $childUser = Get-LocalUser -Name $ChildUsername -ErrorAction SilentlyContinue
+        if (-not $childUser) {
+            throw "חשבון בשם '$ChildUsername' לא נמצא במחשב הזה. בדקו את שם החשבון המדויק (Get-LocalUser) והורידו הרשאות ידנית דרך הגדרות Windows."
+        }
+        $admins = Get-LocalGroupMember -Group 'Administrators'
+        $isChildAdmin = $admins | Where-Object { $_.Name -eq $ChildUsername -or $_.Name -like "*\$ChildUsername" }
+        if (-not $isChildAdmin) {
+            Write-Log "חשבון '$ChildUsername' כבר אינו ברשימת ה-Administrators — אין צורך בפעולה."
+            return
+        }
+        $otherAdmins = $admins | Where-Object { $_.Name -ne $ChildUsername -and $_.Name -notlike "*\$ChildUsername" }
+        if (-not $otherAdmins -or $otherAdmins.Count -eq 0) {
+            throw "לא נמצא חשבון Administrator אחר מלבד '$ChildUsername' — לא מורידים הרשאות כדי לא לנעול את המחשב. ודאו שיש חשבון הורה כ-Administrator ואז הריצו את ההתקנה שוב."
+        }
+        Remove-LocalGroupMember -Group 'Administrators' -Member $ChildUsername
+        Write-Log "חשבון '$ChildUsername' הוסר מקבוצת Administrators. חשבונות Administrator שנשארו: $(($otherAdmins.Name) -join ', ')"
     }
-    $admins = Get-LocalGroupMember -Group 'Administrators'
-    $isChildAdmin = $admins | Where-Object { $_.Name -eq $ChildUsername -or $_.Name -like "*\$ChildUsername" }
-    if (-not $isChildAdmin) {
-        Write-Log "חשבון '$ChildUsername' כבר אינו ברשימת ה-Administrators — אין צורך בפעולה."
-        return
-    }
-    $otherAdmins = $admins | Where-Object { $_.Name -ne $ChildUsername -and $_.Name -notlike "*\$ChildUsername" }
-    if (-not $otherAdmins -or $otherAdmins.Count -eq 0) {
-        throw "לא נמצא חשבון Administrator אחר מלבד '$ChildUsername' — לא מורידים הרשאות כדי לא לנעול את המחשב. ודאו שיש חשבון הורה כ-Administrator ואז הריצו את ההתקנה שוב."
-    }
-    Remove-LocalGroupMember -Group 'Administrators' -Member $ChildUsername
-    Write-Log "חשבון '$ChildUsername' הוסר מקבוצת Administrators. חשבונות Administrator שנשארו: $(($otherAdmins.Name) -join ', ')"
 }
 
 # --- סיכום ---
@@ -231,7 +155,7 @@ Write-Log "=== סיכום התקנה ==="
 if ($script:Failures.Count -eq 0) {
     Write-Log "כל השלבים הושלמו בהצלחה."
     Write-Host ""
-    Write-Host "ההתקנה הושלמה בהצלחה. לוח הבקרה זמין ב-http://localhost:8080" -ForegroundColor Green
+    Write-Host "ההתקנה הושלמה בהצלחה. עמוד המצב המקומי זמין ב-http://localhost:8080" -ForegroundColor Green
 } else {
     Write-Log "השלבים הבאים לא הושלמו ודורשים בדיקה ידנית: $($script:Failures -join '; ')" 'WARN'
     Write-Host ""

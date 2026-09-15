@@ -55,6 +55,14 @@ icacls $installPath /grant:r "BUILTIN\Administrators:(OI)(CI)F" | Out-Null
 icacls $installPath /grant:r "BUILTIN\Users:(OI)(CI)RX" | Out-Null
 Write-Host "  $installPath : SYSTEM/Administrators=מלא, Users=קריאה בלבד"
 
+Write-Host "== 6. נעילה מוגברת על data\ (טוקן המכשיר וה-DB המקומי) — בלי שום גישה לחשבון הילד ==" -ForegroundColor Cyan
+$dataPath = Join-Path $installPath 'data'
+New-Item -ItemType Directory -Force -Path $dataPath | Out-Null
+icacls $dataPath /inheritance:r | Out-Null
+icacls $dataPath /grant:r "SYSTEM:(OI)(CI)F" | Out-Null
+icacls $dataPath /grant:r "BUILTIN\Administrators:(OI)(CI)F" | Out-Null
+Write-Host "  $dataPath : SYSTEM/Administrators=מלא, ללא הרשאה כלל למשתמשים רגילים"
+
 Write-Host ""
 Write-Host "הקשחה הושלמה. חשוב לוודא בנוסף:" -ForegroundColor Yellow
 Write-Host "  - חשבון הילד מוגדר כ-Standard User (לא Administrator)."
